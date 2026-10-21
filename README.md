@@ -15,7 +15,7 @@
 
 > The definition is [Node System and API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.md). It contains the final Node tree, semantic boundaries, fixed shared types, and every public Node input/output contract.
 
-[Developer handbook](docs/handbook/index.md) · [Build the documentation site](site/README.md)
+[Developer handbook](docs/handbook/index.md)
 
 ## Install and use
 

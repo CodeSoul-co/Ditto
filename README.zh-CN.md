@@ -15,7 +15,7 @@
 
 > 权威定义见[节点体系与 API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.zh-CN.md)，其中包含最终节点树、语义边界、固定公共类型，以及所有公共 Node 的输入输出契约。
 
-[开发者搭建手册](docs/handbook/index.md) · [编译文档站](site/README.md)
+[开发者搭建手册](docs/handbook/index.md)
 
 ## 安装与使用
 
