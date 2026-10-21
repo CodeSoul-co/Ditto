@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { sourceLocale, topicPath, pagePath, pageUrl, logoName } from './locales.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'site/.content');
-const candidates = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'docs', 'examples', 'scripts', 'ditto.yaml', '.env.example', 'test/control-flow-boundary.test.ts', 'site/README.md', 'site/README.zh-CN.md', 'README.md', 'README.zh-CN.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
+const candidates = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'docs', 'examples', 'scripts', 'ditto.yaml', '.env.example', 'test/control-flow-boundary.test.ts', 'README.md', 'README.zh-CN.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const files = [...new Set(candidates)].filter(path =>
   !path.split('/').some(part => ['AGENTS.md','agents.md','node_modules','.venv','__pycache__'].includes(part)) &&
   !/(?:^|\/)\.env(?:$|\.(?!example$))/.test(path) &&
