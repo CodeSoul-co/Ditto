@@ -19,7 +19,7 @@
 
 ## Install and use
 
-Requires Node.js 24+ and npm 11+. Ditto ships ESM JavaScript with TypeScript declarations.
+Requires Node.js 24+ and npm 11+.
 
 ```sh
 npm init -y
