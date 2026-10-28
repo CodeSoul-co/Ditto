@@ -62,8 +62,10 @@ test("SELECT separates infer and memory purposes and keeps RAG inside the strate
   const memory = await context.select({ context: source, purpose: "memory", limit: 4 });
   assert.equal(memory.selectedItemIds.includes("private"), false);
   assert.equal(memory.selectedItemIds[0], "memory");
-  assert.deepEqual((await context.select({ context: source, purpose: "infer", limit: 0 })).selectedItemIds, []);
-  assert.deepEqual((await context.select({ context: source, purpose: "infer", maxTokens: 1 })).selectedItemIds, []);
+  await assert.rejects(context.select({ context: source, purpose: "infer", limit: 0 }),
+    (error: unknown) => error instanceof ContextError && error.code === "BUDGET_UNSATISFIABLE");
+  await assert.rejects(context.select({ context: source, purpose: "infer", maxTokens: 1 }),
+    (error: unknown) => error instanceof ContextError && error.code === "BUDGET_UNSATISFIABLE");
 
   const calls: string[] = [];
   const ragStrategy = createRagStrategy({
@@ -75,11 +77,11 @@ test("SELECT separates infer and memory purposes and keeps RAG inside the strate
     rank: { async rank(input) { calls.push("rank"); return [...input.candidates].sort((a, b) => b.score! - a.score!); } },
   });
   const rag = await createContext({ services: { ragStrategy } }).select({
-    context: source, purpose: "infer", query: "worker", limit: 1,
+    context: source, purpose: "infer", query: "worker", limit: 2,
     strategy: { kind: "rag", corpus: { uri: "urn:corpus" } },
   });
   assert.deepEqual(calls, ["embed", "retrieve", "rank"]);
-  assert.deepEqual(rag.selectedItemIds, ["rag-high"]);
+  assert.deepEqual(rag.selectedItemIds, ["system", "rag-high"]);
   await assert.rejects(createContext().select({ context: source, purpose: "infer", strategy: { kind: "rag" } }),
     (error: unknown) => error instanceof ContextError && error.code === "STRATEGY_UNAVAILABLE");
 });

@@ -3,6 +3,7 @@ import type { ContextExecution } from "../../types.js";
 import {
   booleanMetadata, estimateTokens, numericMetadata, snapshotContext,
 } from "../../execution.js";
+import { isProtectedContextItem } from "../../protection.js";
 import { ContextError } from "../../validation.js";
 import type { ContextCompressInput } from "../types.js";
 
@@ -15,13 +16,7 @@ interface ItemGroup {
   readonly tokens: number;
 }
 
-export function isProtectedContextItem(item: ContextItem): boolean {
-  return booleanMetadata(item, "protected")
-    || booleanMetadata(item, "safety")
-    || booleanMetadata(item, "currentGoal")
-    || booleanMetadata(item, "pending")
-    || item.metadata?.role === "system";
-}
+export { isProtectedContextItem } from "../../protection.js";
 
 function correlationKey(item: ContextItem): string {
   const callId = item.metadata?.callId;

@@ -1,5 +1,6 @@
 import type { ContextItem } from "../../../../contracts/common.js";
 import type { ContextSelectInput } from "../types.js";
+import { isProtectedContextItem } from "../../protection.js";
 import { booleanMetadata, numericMetadata, textContent } from "../../execution.js";
 
 function terms(value: string): ReadonlySet<string> {
@@ -19,11 +20,7 @@ export async function defaultSelect(input: ContextSelectInput): Promise<readonly
   const query = terms(input.query === undefined ? "" : textContent(input.query));
   return input.context.items
     .map((item, index) => {
-      const protectedScore = input.purpose === "infer" && (
-        booleanMetadata(item, "protected")
-        || booleanMetadata(item, "currentGoal")
-        || item.metadata?.role === "system"
-      ) ? 1_000_000 : 0;
+      const protectedScore = input.purpose === "infer" && isProtectedContextItem(item) ? 1_000_000 : 0;
       const memoryScore = input.purpose === "memory"
         ? (booleanMetadata(item, "memoryCandidate") ? 500 : 0)
           + (booleanMetadata(item, "reusable") ? 100 : 0)

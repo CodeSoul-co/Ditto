@@ -62,7 +62,7 @@ Entry functions and shared helpers are application code, not additional Core pac
 
 Context nodes return raw Context/Selection and throw `ContextError`; do not unwrap `.output`. Tool nodes return `ExternalResult`; inference and Memory return `NodeResult`. Request budgets cannot relax Worker policy. Scoped and explicit-context inputs are mutually exclusive.
 
-Default compression protects protected/safety/currentGoal/pending and system items. Selection can still skip mandatory items under a small budget, so the application checks instructions before inference. Verified summaries preserve original evidence URIs. Full history remains in conversation Memory and the base checkpoint.
+Infer selection and compression retain protected/safety/currentGoal/pending and system groups unchanged; impossible budgets fail explicitly. Application checks can additionally verify domain-specific evidence. Verified summaries preserve original evidence URIs. Full history remains in conversation Memory and the base checkpoint.
 
 ## Durable execution order
 

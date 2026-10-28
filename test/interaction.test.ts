@@ -54,8 +54,8 @@ test("the four Runtime flows compose Context without adding semantic Nodes", asy
     });
     assert.equal(mcpResult.context.items[1]?.metadata?.callId, "mcp-1");
     assert.equal(mcpResult.context.items[1]?.metadata?.source, "docs:lookup");
-    assert.equal(rag.output.context.items[0]?.id, "doc-1");
-    assert.deepEqual(rag.output.selectedItemIds, ["doc-1"]);
+    assert.deepEqual(rag.output.context.items[0], skill.context.items.at(-1));
+    assert.deepEqual(rag.output.selectedItemIds, ["skill-review", "doc-1"]);
     assert.equal(rag.context, rag.output.context);
   } finally { await runtime.close(); }
 });

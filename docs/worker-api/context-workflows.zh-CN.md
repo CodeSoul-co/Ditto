@@ -62,7 +62,7 @@ try {
 
 `CONTEXT.*` 返回原始 Context/Selection 并抛出 `ContextError`；不要按 `NodeResult.output` 解包。工具节点返回 `ExternalResult`，推理与 Memory 返回 `NodeResult`。预算约束同时受 Worker policy 限制；请求不能放宽全局 policy。`scope` 与显式 `context` 输入互斥。
 
-默认压缩保护 `protected/safety/currentGoal/pending` 或 system 条目；默认选择依然可能因预算跳过它们，因此示例显式验证关键指令。摘要条目保留已核对的原始证据 URI；原始长历史继续保存在数据库会话及 base 检查点中。
+infer 选择与压缩都原样保留 `protected/safety/currentGoal/pending` 或 system 组，预算不可满足时明确报错；应用仍可检查领域相关证据。摘要条目保留已核对的原始证据 URI；原始长历史继续保存在数据库会话及 base 检查点中。
 
 ## 持久化顺序
 

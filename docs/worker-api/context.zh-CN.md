@@ -18,13 +18,13 @@ CONTEXT 管理当前任务的工作上下文：LOAD 归一化输入，UPDATE 合
 | 参数 / 设计 | 行为影响 | 取舍与边界 |
 | --- | --- | --- |
 | SELECT `limit` / COMPRESS `maxItems` | 较大值允许更多条目进入结果 | 增加下游输入量；条数不是 token 数，一条长文也可能占满预算 |
-| SELECT / COMPRESS `maxTokens` | 较大值容纳更多估算 token；较小值更容易舍弃资料 | 是 Context 内容预算，不包含完整模型协议、额外提示和输出，需为它们预留窗口；SELECT 跳过装不下的条目 |
-| SELECT `purpose:"infer"` | 默认优先 system、protected、currentGoal | 优先排序不等于保证保留，SELECT 仍可因预算跳过它们；推理前检查必要指令是否入选 |
+| SELECT / COMPRESS `maxTokens` | 较大值容纳更多估算 token；较小值更容易舍弃资料 | 是 Context 内容预算，不包含完整模型协议、额外提示和输出，需为它们预留窗口；SELECT 跳过装不下的可选组，必需组必须容纳 |
+| SELECT `purpose:"infer"` | 原样保留 protected/safety/currentGoal/pending 和 system 组 | 必需组超预算抛 BUDGET_UNSATISFIABLE；注入策略只负责可选证据排序 |
 | SELECT `purpose:"memory"` | 默认优先 memoryCandidate、reusable、stable，排除 private=true / memoryEligible=false | 只选择候选，不写入 MEMORY；这些规则不是所有用途通用的权限过滤器 |
 | SELECT `query` / `strategy` | default 使用当前快照的词项重合等评分；rag / provider 使用注入服务 | 词项重合不等于语义相似；中文分词、向量检索或外部知识库需配置适配器，可能增加网络/embedding 调用 |
 | metadata `priority` / `relevance` | 调整默认选择与压缩的保留优先级 | 是应用数值，不是校准置信度；过大的优先级可能压过相关性信号 |
-| metadata `protected` / `safety` / `currentGoal` / `pending` / role=system | COMPRESS 保留这些条目 | 保护内容超预算时失败；压缩保护与 SELECT 排序不同 |
-| metadata `callId` | COMPRESS 将同一工具调用的相关条目作为一组 | 整组保留或移除，避免请求和结果断开；大保护组可能导致 BUDGET_UNSATISFIABLE |
+| metadata `protected` / `safety` / `currentGoal` / `pending` / role=system | infer SELECT 与 COMPRESS 原样保留这些组 | 保护内容超预算时失败；正文、来源与元数据不可改写 |
+| metadata `callId` | SELECT / COMPRESS 将同一工具调用的相关条目作为一组 | 整组保留或移除，避免请求和结果断开；大保护组可能导致 BUDGET_UNSATISFIABLE |
 | LOAD `resolveReferences:true` | 通过 resolver 解析裸 Reference，保留来源身份 | 默认 false；增加 I/O、内容和耗时，应用 resolver 应限制访问范围、大小和权限 |
 | UPDATE ID / policy.duplicate | 同 ID 可 replace、keep-first 或 reject；新 ID 继续增加条目 | replace 保留原插入位置；使用稳定 ID 可避免每轮堆积重复资料 |
 
@@ -89,9 +89,9 @@ interface ContextSelection {
 
 输出是独立、深度冻结的快照。条目 ID 非空，重复输入 Context ID 无效，内容必须是有限、无循环的 JSON。请求 limit/maxItems/maxTokens 可为 0，最大 1000000；policy 数值必须为正整数且不超过 1000000。请求不能放宽 policy 限制。
 
-SELECT 默认策略为 `{ kind: "default" }`。infer 优先 system/protected/currentGoal，memory 优先 memoryCandidate/reusable/stable 并排除 private=true 或 memoryEligible=false；其余权重来自 priority、relevance、查询词重合和位置。预算不足时跳过放不下的项。SELECT 是选取而非安全策略，受保护内容也可能因预算被跳过。未注入 tokenEstimator 时按 JSON UTF-8 字节数 / 4 向上估算，非模型精确 token 数。
+SELECT 默认策略为 `{ kind: "default" }`。infer 原样保留 protected/safety/currentGoal/pending 和 system 组，即使注入的 RAG/provider 只返回检索证据也会保留原始必需项；provider 不得改写它们。可选证据按 priority、relevance、查询词重合和位置排序。相同非空 callId 组不可拆分；可选组放不下则跳过，必需组超出条数或 token 预算抛 BUDGET_UNSATISFIABLE。provider 仅返回某个可选输入组的一部分时抛 INVALID_PROVIDER_OUTPUT。memory 仍优先 memoryCandidate/reusable/stable，并排除 private=true 或 memoryEligible=false；推理保护不会强制把私人输入加入记忆候选。SELECT 不替代租户鉴权。未注入 tokenEstimator 时按 JSON UTF-8 字节数 / 4 向上估算，非模型精确 token 数。
 
-COMPRESS 保护 metadata 中 protected/safety/currentGoal/pending=true 或 role=system 的条目，相同非空 callId 的条目作为不可拆分的组。优先删除低 priority/relevance、可再次检索及较早的组，保留顺序。受保护组超预算抛 BUDGET_UNSATISFIABLE；不静默删除。没有 token 预算时不进行 token 估算。自定义 compressor 不能引入新 ID、删除保护项或拆散 callId 组，最终内容仍受条数、inline 和 token 限制。
+COMPRESS 保护 metadata 中 protected/safety/currentGoal/pending=true 或 role=system 的条目，相同非空 callId 的条目作为不可拆分的组。优先删除低 priority/relevance、可再次检索及较早的组，保留顺序。受保护组超预算抛 BUDGET_UNSATISFIABLE；不静默删除。没有 token 预算时不进行 token 估算。自定义 compressor 不能引入新 ID、删除或改写受保护组（包括正文、来源和元数据），也不能拆散 callId 组，最终内容仍受条数、inline 和 token 限制。
 
 ## 可选缓存模式
 
