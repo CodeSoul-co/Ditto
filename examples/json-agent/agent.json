@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "hello-json",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [
+              {
+                "role": "user",
+                "content": {
+                  "$ref": "input"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": [
+            "loaded"
+          ],
+          "input": {
+            "context": {
+              "$ref": "nodes.loaded"
+            },
+            "purpose": "infer",
+            "limit": 1
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.selected.context.items.0.content"
+      }
+    }
+  },
+  "deployment": {
+    "workers": [
+      {
+        "id": "context",
+        "use": "context"
+      }
+    ],
+    "bindings": {
+      "main": {
+        "loaded": "context",
+        "selected": "context"
+      }
+    }
+  }
+}

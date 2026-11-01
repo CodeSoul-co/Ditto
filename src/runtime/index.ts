@@ -1,4 +1,10 @@
 export { createDitto, DittoRuntime } from "./runtime.js";
+export { compileAgent, createAgent } from "./agent.js";
+export type {
+  AgentDefinition, AgentGraph, AgentNode, AgentSubgraph, AgentExpression, AgentLoop,
+  AgentLoopStep, AgentTransition, AgentDeployment, AgentWorker, CreateAgentOptions,
+  CompiledAgent, ConfiguredAgent,
+} from "./agent.js";
 export type { DittoOptions, WorkerHandle, WorkerRegistrationOptions, RunOptions, LoopRunOptions } from "./runtime.js";
 export {
   graph, ExecutionGraph, runMcpFlow, runRagFlow, runSkillFlow, runToolCallFlow,

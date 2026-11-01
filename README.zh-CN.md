@@ -15,11 +15,11 @@
 
 > 权威定义见[节点体系与 API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.zh-CN.md)，其中包含最终节点树、语义边界、固定公共类型，以及所有公共 Node 的输入输出契约。
 
-[开发者搭建手册](docs/handbook/index.md)
+**[通过配置文件构建 Agent](docs/agent-json.zh-CN.md)** · [开发者搭建手册](docs/handbook/index.md)
 
 ## 安装与使用
 
-要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。
+要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.3` 或更高版本。
 
 ```sh
 npm init -y
@@ -27,26 +27,65 @@ npm pkg set type=module
 npm install @codesoul-co/ditto
 ```
 
-保存为 `app.mjs`，执行 `node app.mjs`：
+推荐从仓库根目录的标准模板 [agent_example.json](agent_example.json) 开始。模板包含 main、Subgraph、Loop 和 Worker 注册绑定，普通参数在 `config` 中调整。安装 npm 包后复制：
 
-```js
-import { createDitto, createContextWorker, graph } from "@codesoul-co/ditto";
-
-const runtime = createDitto({ workers: [createContextWorker()] });
-const plan = graph("hello")
-  .node("loaded", "CONTEXT.LOAD", [], text => ({
-    sources: [{ role: "user", content: text }],
-  }))
-  .node("selected", "CONTEXT.SELECT", ["loaded"], (_input, { loaded }) => ({
-    context: loaded, purpose: "infer", limit: 1,
-  }));
-try {
-  const result = await runtime.run(plan, "Hello Ditto");
-  console.log(result.selected.context.items[0].content);
-} finally { await runtime.close(); }
+```sh
+cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
 ```
 
-第一张 Graph 不需要模型、Redis 或配置文件。完整 Agent 使用真实模型、Redis Context 和数据库 Memory，详见[非常详细的 npm 包使用教程](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)：从空项目安装、TypeScript、API 返回值、工具注册、Loop 组合，到持久化、跨进程恢复、产物输出和故障排查。
+在源码仓库中则执行 `cp agent_example.json agent.json`。下面是更小的单图多节点版本（LOAD → SELECT），也可保存为 `agent.json`，两种配置共用下方宿主代码。
+
+```json
+{
+  "version": 1,
+  "id": "hello",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": ["loaded"],
+          "input": {
+            "context": { "$ref": "nodes.loaded" },
+            "purpose": "infer",
+            "limit": 1
+          }
+        }
+      ],
+      "output": { "$ref": "nodes.selected.context.items.0.content" }
+    }
+  },
+  "deployment": {
+    "workers": [{ "id": "context", "use": "context" }],
+    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+  }
+}
+```
+
+宿主入口 `app.mjs`：
+
+```js
+import { readFile } from "node:fs/promises";
+import { createAgent } from "@codesoul-co/ditto/runtime";
+import { createContextWorker } from "@codesoul-co/ditto/worker/context";
+
+const definition = JSON.parse(await readFile("agent.json", "utf8"));
+const agent = await createAgent(definition, {
+  workers: { context: createContextWorker() },
+});
+try { console.log(await agent.run("Hello Ditto")); }
+finally { await agent.close(); }
+```
+
+第一张 Graph 不需要模型、Redis 或凭证。完整 Agent 使用真实模型、Redis Context 和数据库 Memory，详见[非常详细的 npm 包使用教程](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)：从空项目安装、TypeScript、API 返回值、工具注册、Loop 组合，到持久化、跨进程恢复、产物输出和故障排查。
 
 [四个可运行入门示例](https://github.com/erwinmsmith/Ditto/tree/main/examples/package-basics)分别展示 Context、工具、可选检索和持久化多轮 Agent。教程提供将应用适配器复制到独立 npm 项目的具体命令；示例业务函数不作为包 API 导出。
 
@@ -57,6 +96,8 @@ npm install @codesoul-co/ditto-retrieval
 ```
 
 从 `@codesoul-co/ditto-retrieval` 导入检索 Worker；`@codesoul-co/ditto/runtime`、`@codesoul-co/ditto/worker/memory` 等是主包的公开子入口。不要导入包内部的 `src` 或 `dist` 路径。
+
+标准搭建方式是通过配置文件构建 Agent，当前使用 JSON 格式：必需的 `main`、可选 Subgraph、外层 Loop、Worker 注册引用与绑定都由 `agent.json` 管理。宿主提供真实实现、凭证与权限。参见 [配置文件教程](docs/agent-json.zh-CN.md)和 [配置文件示例](examples/json-agent/README.zh-CN.md)。以下代码式编排与 Provider 接线是深入用法。
 
 ## 架构定位
 

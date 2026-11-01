@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { sourceLocale, topicPath, pagePath, pageUrl, logoName } from './locales.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'site/.content');
-const candidates = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'docs', 'examples', 'scripts', 'ditto.yaml', '.env.example', 'test/control-flow-boundary.test.ts', 'README.md', 'README.zh-CN.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
+const candidates = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'docs', 'examples', 'scripts', 'ditto.yaml', 'agent_example.json', '.env.example', 'test/control-flow-boundary.test.ts', 'README.md', 'README.zh-CN.md'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const files = [...new Set(candidates)].filter(path =>
   !path.split('/').some(part => ['AGENTS.md','agents.md','node_modules','.venv','__pycache__'].includes(part)) &&
   !/(?:^|\/)\.env(?:$|\.(?!example$))/.test(path) &&
@@ -107,11 +107,11 @@ layout: home
 hero:
   name: Ditto
   text: ${zh ? 'Agent 开发者文档' : 'Agent developer documentation'}
-  tagline: ${zh ? '从第一个 Graph 到可恢复的完整 Agent。按需组合 Worker、Loop、工具、MCP、Skill 与数据库。' : 'From your first Graph to a recoverable Agent. Compose Workers, Loops, tools, MCP, skills and databases.'}
+  tagline: ${zh ? '通过配置文件构建 Agent：定义 Graph 与 Loop，绑定 Worker、工具与数据库。' : 'Build an Agent from configuration; define Graphs and Loops, bind Workers, tools and databases.'}
   actions:
     - theme: brand
       text: ${zh ? '开始搭建 Agent' : 'Build your first Agent'}
-      link: ${prefix}/docs/handbook/
+      link: ${prefix}/docs/agent-json
     - theme: alt
       text: Worker API
       link: ${prefix}/docs/worker-api/README
@@ -121,7 +121,7 @@ hero:
 features:
   - title: ${zh ? '从安装到交付' : 'From installation to delivery'}
     details: ${zh ? '项目结构、模型配置、Graph 与 Loop、错误处理与真实答案文件。' : 'Project layout, model configuration, Graphs and Loops, errors and actual answer files.'}
-    link: ${prefix}/docs/handbook/agent
+    link: ${prefix}/docs/agent-json
   - title: ${zh ? '连接工具与知识' : 'Connect tools and knowledge'}
     details: ${zh ? 'Tool、MCP、Skill、Redis Context、数据库 Memory 与检索算法。' : 'Tools, MCP, skills, Redis Context, database Memory and retrieval algorithms.'}
     link: ${prefix}/docs/handbook/tools
@@ -153,14 +153,14 @@ const localePairs = ['index.md', ...routes.keys(), ...[...sourcePages].map(file=
 await put(join(out,'locale-manifest.json'),JSON.stringify({pairs:localePairs,redirects},null,2));
 const temp = await mkdtemp(join(tmpdir(),'ditto-docs-examples-'));
 try {
-  for (const file of files.filter(p => p.startsWith('examples/') || p.startsWith('docs/') || p === 'ditto.yaml')) {
+  for (const file of files.filter(p => p.startsWith('examples/') || p.startsWith('docs/') || p === 'ditto.yaml' || p === 'agent_example.json')) {
     await mkdir(dirname(join(temp,file)),{recursive:true}); await cp(join(root,file),join(temp,file));
   }
   const pkg = JSON.parse(await readFile(join(root,'package.json'),'utf8'));
   const scripts = Object.fromEntries(Object.entries(pkg.scripts).filter(([k]) => k.startsWith('example:')).map(([k,v]) => [k,v.replace(/^npm run build && /,'')]));
   await put(join(temp,'package.json'),JSON.stringify({name:'ditto-consumer-examples',private:true,type:'module',scripts,
     dependencies:{'@codesoul-co/ditto':pkg.version,'@codesoul-co/ditto-retrieval':'0.1.0',redis:'6.2.1'},devDependencies:{typescript:pkg.devDependencies.typescript,'@types/node':pkg.devDependencies['@types/node']}},null,2)+'\n');
-  await put(join(temp,'README.md'),'# Ditto consumer examples\n\nRun `npm install`, then `node examples/package-basics/context.ts`. For real-model examples, copy `examples/package-basics/.env.example` to `.env` and configure the provider and Redis. See each example README for optional application dependencies.\n\nThis archive installs published npm packages. Framework build and check:* scripts described in repository documentation belong to the source repository and are not required here. Keep relative paths when copying application adapters.\n');
+  await put(join(temp,'README.md'),'# Ditto consumer examples\n\nRun `npm install`, copy `agent_example.json` to `agent.json`, then run `node examples/json-agent/quickstart.ts "Hello Ditto" agent.json`. For real-model examples, copy `examples/package-basics/.env.example` to `.env` and configure the provider and Redis. See each example README for optional application dependencies.\n\nThis archive installs published npm packages. Framework build and check:* scripts described in repository documentation belong to the source repository and are not required here. Keep relative paths when copying application adapters.\n');
   await put(join(temp,'.gitignore'),'.env\nnode_modules/\n.examples-*-tasks/\n*.sqlite*\n');
   execFileSync('zip',['-q','-r',join(out,'public/downloads/ditto-examples.zip'),'.'],{cwd:temp});
 } finally { await rm(temp,{recursive:true,force:true}); }

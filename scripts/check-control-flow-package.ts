@@ -25,7 +25,7 @@ const save = () => writeFile(resolve(values.report!), JSON.stringify(report, nul
 await save();
 try {
   const [packed] = JSON.parse(await run("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", app], root));
-  assert.ok(packed.files.every((file: { path: string }) => file.path === "package.json" || ["README.md", "README.zh-CN.md"].includes(file.path) || file.path.startsWith("dist/")), "Unexpected source, example or secret in tarball");
+  assert.ok(packed.files.every((file: { path: string }) => file.path === "package.json" || ["README.md", "README.zh-CN.md", "agent_example.json"].includes(file.path) || file.path.startsWith("dist/")), "Unexpected source, example or secret in tarball");
   report.tarball = { filename: packed.filename, integrity: packed.integrity, shasum: packed.shasum, files: packed.files.length };
   await writeFile(join(app, "package.json"), JSON.stringify({ name: "control-flow-consumer", private: true, type: "module" }));
   const [retrievalPacked] = JSON.parse(await run("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", app], join(root, "packages/retrieval")));

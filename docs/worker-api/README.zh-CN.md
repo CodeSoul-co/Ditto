@@ -1,5 +1,7 @@
 # Worker 使用 API
 
+**从 [配置文件构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+
 [English](README.md) · **简体中文** · [文档地图](../README.zh-CN.md)
 
 本目录以当前代码的公开入口为准，覆盖工厂、SDK 方法、全部 Worker 节点、Provider/存储适配器、注册表、配置和生命周期。每项操作都有调用示例；完整 TypeScript 示例放在 [examples](examples/README.md)，随 `npm run typecheck` 校验。类型定义不是自动数据库驱动或自动插件加载声明。

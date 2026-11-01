@@ -1,0 +1,9 @@
+{
+  "name": "@ditto-example/text-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": ["dist"],
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "peerDependencies": { "@codesoul-co/ditto": "^0.1.2" }
+}

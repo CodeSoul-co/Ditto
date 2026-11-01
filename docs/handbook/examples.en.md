@@ -1,5 +1,7 @@
 # Choose and run examples
 
+**Start with [an Agent configuration file](../../examples/json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 The examples progress from basic calls through control flows and Agent capabilities to complete execution patterns. Each directory describes inputs, dependencies, commands, artifacts, failures and validation. Third-party tools and database adapters live in `_shared/tools`, outside framework dependencies.
 
 ## 1. Download consumer examples

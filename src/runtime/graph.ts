@@ -15,6 +15,7 @@ export interface GraphTask {
   readonly node: NodeType;
   readonly dependencies: readonly string[];
   readonly bind: (input: unknown, outputs: Readonly<Record<string, unknown>>) => unknown;
+  readonly validateOutput?: (output: unknown) => void;
 }
 
 /** Immutable logical DAG. No Worker IDs, model configuration or host addresses. */
@@ -28,11 +29,27 @@ export class ExecutionGraph<I, O extends object = Record<never, never>> {
     return new ExecutionGraph<I>(id, Object.freeze([]));
   }
 
+  /** Linear-time construction for validated dynamic compilers; handlers still validate payloads. */
+  static fromTasks<I>(id: string, tasks: readonly GraphTask[]): ExecutionGraph<I, Record<string, unknown>> {
+    if (!id) throw new Error("Graph ID cannot be empty");
+    const known = new Set<string>();
+    const snapshot = tasks.map(task => {
+      if (!task.id || known.has(task.id)) throw new Error(`Duplicate or empty graph Node ID: ${task.id}`);
+      if (typeof task.bind !== "function" || (task.validateOutput !== undefined && typeof task.validateOutput !== "function"))
+        throw new Error(`Invalid graph callbacks: ${task.id}`);
+      for (const dependency of task.dependencies) if (!known.has(dependency)) throw new Error(`Unknown graph dependency: ${dependency}`);
+      known.add(task.id);
+      return Object.freeze({ ...task, dependencies: Object.freeze([...new Set(task.dependencies)]) });
+    });
+    return new ExecutionGraph(id, Object.freeze(snapshot));
+  }
+
   node<const ID extends string, N extends NodeType, const D extends readonly (keyof O & string)[]>(
     id: ID,
     node: N,
     dependencies: D,
     bind: (input: I, outputs: Pick<O, D[number]>) => InputOf<NoInfer<N>>,
+    validateOutput?: (output: OutputOf<N>) => void,
   ): ExecutionGraph<I, O & Record<ID, OutputOf<N>>> {
     if (!id || this.tasks.some((task) => task.id === id)) {
       throw new Error(`Duplicate or empty graph Node ID: ${id}`);
@@ -45,6 +62,7 @@ export class ExecutionGraph<I, O extends object = Record<never, never>> {
       id, node, dependencies: Object.freeze([...new Set(dependencies)]),
       // The builder checks the typed binder. Scheduler passes only declared outputs.
       bind: bind as GraphTask["bind"],
+      ...(validateOutput ? { validateOutput: validateOutput as (output: unknown) => void } : {}),
     });
     return new ExecutionGraph(this.id, Object.freeze([...this.tasks, task]));
   }
@@ -73,7 +91,8 @@ export async function runGraph<I, O extends object>(
   }
   options.signal?.throwIfAborted();
   const checkpoint = options.checkpoint;
-  const graphHash = checkpoint ? stateDigest(graph.tasks.map(t => [t.id, t.node, t.dependencies, t.bind.toString()])) : "";
+  const graphHash = checkpoint ? stateDigest(graph.tasks.map(t => [t.id, t.node, t.dependencies, t.bind.toString(),
+    ...(t.validateOutput ? [t.validateOutput.toString()] : [])])) : "";
   const inputHash = checkpoint ? stateDigest(input) : "";
   const restored = checkpoint?.resume ? restoreState(checkpoint.resume, `graph:${graph.id}`, checkpoint.version) : undefined;
   if (restored && (restored.graphHash !== graphHash || restored.inputHash !== inputHash || restored.uncertain.length))
@@ -129,7 +148,7 @@ export async function runGraph<I, O extends object>(
           const dependencies = Object.fromEntries(task.dependencies.map(id => [id, outputs[id]]));
           return invoke(task.node, task.bind(input, Object.freeze(dependencies)), {
             graphId: graph.id, runId, nodeId: task.id,
-          });
+          }).then(output => { task.validateOutput?.(output); return output; });
         }).then(output => {
           outputs[task.id] = output;
           for (const child of dependents.get(task.id)!) {
