@@ -1,6 +1,6 @@
 # Ditto examples
 
-**Start with [agent.json](json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+**Start with [an Agent configuration file](json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
 
 [Handbook examples](handbook/README.md): custom Workers, Skills, database ranking and real MCP.
 

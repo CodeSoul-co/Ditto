@@ -107,7 +107,7 @@ layout: home
 hero:
   name: Ditto
   text: ${zh ? 'Agent 开发者文档' : 'Agent developer documentation'}
-  tagline: ${zh ? '通过 agent.json 定义 main、Subgraph 与 Loop，绑定真实 Worker、工具与数据库。' : 'Define main, Subgraphs and Loop in agent.json; bind real Workers, tools and databases.'}
+  tagline: ${zh ? '通过配置文件构建 Agent：定义 Graph 与 Loop，绑定 Worker、工具与数据库。' : 'Build an Agent from configuration; define Graphs and Loops, bind Workers, tools and databases.'}
   actions:
     - theme: brand
       text: ${zh ? '开始搭建 Agent' : 'Build your first Agent'}

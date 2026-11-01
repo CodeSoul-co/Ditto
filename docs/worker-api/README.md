@@ -1,6 +1,6 @@
 # Worker usage API
 
-**Start with [agent.json](../agent-json.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+**Start with [an Agent configuration file](../agent-json.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
 
 **English** · [简体中文](README.zh-CN.md) · [Documentation map](../README.md)
 

@@ -1,6 +1,6 @@
-# JSON Agent：npm 场景验收
+# 通过配置文件构建 Agent：npm 场景验收
 
-[English](README.md) · **简体中文** · [JSON 示例](../README.zh-CN.md)
+[English](README.md) · **简体中文** · [配置文件示例](../README.zh-CN.md)
 
 这里验证消费者安装 npm 包后，仅通过公开 API 提供 Worker、工具与资源，由 `agent.json` 定义编排。验收将 Core、Retrieval 和示例第三方扩展分别打成 tarball，在仓库外安装；不发布 registry，不使用源码别名或 npm link。
 

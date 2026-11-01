@@ -15,11 +15,11 @@
 
 > 权威定义见[节点体系与 API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.zh-CN.md)，其中包含最终节点树、语义边界、固定公共类型，以及所有公共 Node 的输入输出契约。
 
-**[JSON Agent 标准配置](docs/agent-json.zh-CN.md)** · [开发者搭建手册](docs/handbook/index.md)
+**[通过配置文件构建 Agent](docs/agent-json.zh-CN.md)** · [开发者搭建手册](docs/handbook/index.md)
 
 ## 安装与使用
 
-要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方 JSON Agent API 与模板需要 `@codesoul-co/ditto@0.1.3` 或更高版本。
+要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.3` 或更高版本。
 
 ```sh
 npm init -y
@@ -97,7 +97,7 @@ npm install @codesoul-co/ditto-retrieval
 
 从 `@codesoul-co/ditto-retrieval` 导入检索 Worker；`@codesoul-co/ditto/runtime`、`@codesoul-co/ditto/worker/memory` 等是主包的公开子入口。不要导入包内部的 `src` 或 `dist` 路径。
 
-标准搭建方式是 JSON：必需的 `main`、可选 Subgraph、外层 Loop、Worker 注册引用与绑定都由 `agent.json` 管理。宿主提供真实实现、凭证与权限。参见 [JSON 配置教程](docs/agent-json.zh-CN.md)和 [JSON 示例](examples/json-agent/README.zh-CN.md)。以下代码式编排与 Provider 接线是深入用法。
+标准搭建方式是通过配置文件构建 Agent，当前使用 JSON 格式：必需的 `main`、可选 Subgraph、外层 Loop、Worker 注册引用与绑定都由 `agent.json` 管理。宿主提供真实实现、凭证与权限。参见 [配置文件教程](docs/agent-json.zh-CN.md)和 [配置文件示例](examples/json-agent/README.zh-CN.md)。以下代码式编排与 Provider 接线是深入用法。
 
 ## 架构定位
 

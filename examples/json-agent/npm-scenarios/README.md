@@ -1,6 +1,6 @@
-# JSON Agent: npm acceptance scenarios
+# Build Agents from configuration: npm acceptance scenarios
 
-**English** · [简体中文](README.zh-CN.md) · [JSON examples](../README.md)
+**English** · [简体中文](README.zh-CN.md) · [configuration examples](../README.md)
 
 These scenarios install Core, Retrieval and a separately built third-party Worker tarball outside the repository. Hosts supply implementations and resources through public exports; `agent.json` owns orchestration. No registry publication, source aliases or npm links are involved.
 

@@ -1,4 +1,4 @@
-# JSON Agent examples
+# Agent configuration examples
 
 **English** · [简体中文](README.zh-CN.md) · [Configuration reference](../../docs/agent-json.md)
 

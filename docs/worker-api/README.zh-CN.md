@@ -1,6 +1,6 @@
 # Worker 使用 API
 
-**从 [agent.json 构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+**从 [配置文件构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
 
 [English](README.md) · **简体中文** · [文档地图](../README.zh-CN.md)
 

@@ -15,11 +15,11 @@
 
 > The definition is [Node System and API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.md). It contains the final Node tree, semantic boundaries, fixed shared types, and every public Node input/output contract.
 
-**[JSON Agent configuration](docs/agent-json.md)** · [Developer handbook](docs/handbook/index.md)
+**[Build an Agent from a configuration file](docs/agent-json.md)** · [Developer handbook](docs/handbook/index.md)
 
 ## Install and use
 
-Requires Node.js 24+ and npm 11+. The JSON Agent API and template below require `@codesoul-co/ditto@0.1.3` or later.
+Requires Node.js 24+ and npm 11+. The configuration-based Agent API and template below require `@codesoul-co/ditto@0.1.3` or later.
 
 ```sh
 npm init -y
@@ -97,7 +97,7 @@ npm install @codesoul-co/ditto-retrieval
 
 Import its Worker from `@codesoul-co/ditto-retrieval`. Runtime and built-in Worker entries such as `@codesoul-co/ditto/runtime` and `@codesoul-co/ditto/worker/memory` belong to the main package. Do not import private `src` or `dist` paths.
 
-The standard construction path is JSON: `agent.json` owns the required `main`, optional Subgraphs, outer Loop, Worker registration references and bindings. The host supplies implementations, credentials and permissions. See the [JSON guide](docs/agent-json.md) and [JSON examples](examples/json-agent/README.md). Code-based composition and provider wiring below are advanced integration paths.
+The standard construction path uses a configuration file, currently in JSON format: `agent.json` owns the required `main`, optional Subgraphs, outer Loop, Worker registration references and bindings. The host supplies implementations, credentials and permissions. See the [configuration guide](docs/agent-json.md) and [configuration examples](examples/json-agent/README.md). Code-based composition and provider wiring below are advanced integration paths.
 
 ## Architecture
 

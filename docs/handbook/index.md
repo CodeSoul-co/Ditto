@@ -1,6 +1,6 @@
 # Ditto 开发者指南
 
-**从 [agent.json 构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+**从 [配置文件构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
 
 Ditto 将 Agent 的一次操作定义为 **Node**，将实现、连接和计算资源放入 **Worker**，使用 **Graph** 声明步骤依赖，再用 **Loop** 控制阶段、分支、循环和恢复。应用可以替换模型、工具、数据库或部署位置，保留相同的 Graph。
 

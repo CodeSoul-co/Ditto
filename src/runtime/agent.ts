@@ -80,7 +80,7 @@ export interface CompiledAgent {
   /** Preflight every graph and binding before starting any work. Runtime remains host-owned. */
   run(runtime: DittoRuntime, input: unknown, options?: LoopRunOptions): Promise<unknown>;
 }
-export interface JsonAgent {
+export interface ConfiguredAgent {
   readonly compiled: CompiledAgent;
   readonly runtime: DittoRuntime;
   run(input: unknown, options?: Omit<LoopRunOptions, "workers">): Promise<unknown>;
@@ -335,7 +335,7 @@ function preflight(graphs: CompiledAgent["graphs"], workers: readonly { id: stri
 }
 
 /** Register trusted definitions separately from JSON structure. Owns and closes its Runtime. */
-export async function createAgent(source: unknown, options: CreateAgentOptions): Promise<JsonAgent> {
+export async function createAgent(source: unknown, options: CreateAgentOptions): Promise<ConfiguredAgent> {
   const compiled = compileAgent(source);
   const { workers: registry, serviceProfiles = {}, ...runtimeOptions } = options;
   const deployment = compiled.definition.deployment ?? {};

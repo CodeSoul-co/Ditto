@@ -1,8 +1,8 @@
-# 使用 agent.json 构建 Agent
+# 通过配置文件构建 Agent
 
 [English](agent-json.md) · **简体中文**
 
-先写一份 `agent.json`：定义必需的 `main` Graph、可选的可复用 Subgraph、外层 Loop、普通参数和部署引用。宿主提供真实 Worker、工具、凭证和获准的资源配置。通过 npm 包的 `createAgent()` 编译配置、注册选定 Worker，再调用 `run()` / `close()`。
+通过配置文件描述并构建 Agent。当前支持 JSON 格式，标准文件名为 `agent.json`：定义必需的 `main` Graph、可选的可复用 Subgraph、外层 Loop、普通参数和部署引用。宿主提供真实 Worker、工具、凭证和获准的资源配置。通过 npm 包的 `createAgent()` 编译配置、注册选定 Worker，再调用 `run()` / `close()`。
 
 分层保持 **Loop → Graph/Subgraph → Node → Worker**。Subgraph 只封装 DAG，不拥有 Loop。条件、重复与结束由外层 Loop 控制。不配置 `loop` 时，只执行一次 `main`。
 

@@ -3,7 +3,7 @@ export { compileAgent, createAgent } from "./agent.js";
 export type {
   AgentDefinition, AgentGraph, AgentNode, AgentSubgraph, AgentExpression, AgentLoop,
   AgentLoopStep, AgentTransition, AgentDeployment, AgentWorker, CreateAgentOptions,
-  CompiledAgent, JsonAgent,
+  CompiledAgent, ConfiguredAgent,
 } from "./agent.js";
 export type { DittoOptions, WorkerHandle, WorkerRegistrationOptions, RunOptions, LoopRunOptions } from "./runtime.js";
 export {

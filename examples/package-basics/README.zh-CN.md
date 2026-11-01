@@ -1,6 +1,6 @@
 # npm 基础使用示例
 
-**从 [agent.json 构建 Agent](../json-agent/README.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+**从 [配置文件构建 Agent](../json-agent/README.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
 
 [English](README.md) · [完整使用教程](../../docs/package-guide.zh-CN.md) · [示例索引](../README.zh-CN.md)
 

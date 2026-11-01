@@ -1,6 +1,6 @@
 # npm package basics
 
-**Start with [agent.json](../json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+**Start with [an Agent configuration file](../json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
 
 [简体中文](README.zh-CN.md) · [Complete package guide](../../docs/package-guide.md) · [Examples](../README.md)
 

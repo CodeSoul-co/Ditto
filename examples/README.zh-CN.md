@@ -1,6 +1,6 @@
 # Ditto 示例
 
-**从 [agent.json 构建 Agent](json-agent/README.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+**从 [配置文件构建 Agent](json-agent/README.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
 
 [开发者手册示例](handbook/README.zh-CN.md)：自定义 Worker、Skill、数据库排序与真实 MCP。
 

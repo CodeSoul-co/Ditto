@@ -1,6 +1,6 @@
 # npm package usage guide
 
-**Standard entry: [configure and run agent.json](agent-json.md).** This page adds npm installation, type checking, resource wiring and code-based composition details.
+**Standard entry: [build and run an Agent from configuration](agent-json.md).** This page adds npm installation, type checking, resource wiring and code-based composition details.
 
 [简体中文](package-guide.zh-CN.md) · [API reference](worker-api/README.md) · [Runnable basics](../examples/package-basics/README.md)
 

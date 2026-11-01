@@ -1,6 +1,6 @@
 # npm 包基础使用指南
 
-**标准入口：[agent.json 配置与运行](agent-json.zh-CN.md)。** 本页补充 npm 安装、类型检查、资源接线和代码式编排的详细说明。
+**标准入口：[通过配置文件构建与运行 Agent](agent-json.zh-CN.md)。** 本页补充 npm 安装、类型检查、资源接线和代码式编排的详细说明。
 
 [English](package-guide.md) · [API 参考](worker-api/README.zh-CN.md) · [可运行入门示例](../examples/package-basics/README.zh-CN.md)
 

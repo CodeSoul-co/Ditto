@@ -1,4 +1,4 @@
-# JSON Agent 示例
+# 配置文件构建 Agent 示例
 
 [English](README.md) · **简体中文** · [配置参考](../../docs/agent-json.zh-CN.md)
 
