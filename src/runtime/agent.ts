@@ -1,3 +1,12 @@
+/**
+ * agent.json defines structure and application parameters. createAgent() defaults
+ * to ./ditto.yaml + process.env through Runtime; explicit options.config wins.
+ * compileAgent() stays pure and does not read configuration files.
+ * definition.config is only expression data, separate from Runtime config.
+ * With loop, maxIterations is required and overrides the Runtime fallback;
+ * without loop, main runs once. run(input, { concurrency }) overrides the Runtime default.
+ * Node inputs override supported Worker defaults, never host permission grants.
+ */
 import type { JsonValue, NodeType } from "../contracts/index.js";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkerDefinition } from "../worker/define-worker.js";
@@ -89,7 +98,7 @@ export interface ConfiguredAgent {
 
 type Outputs = Readonly<Record<string, unknown>>;
 type Resolver = (input: unknown, outputs: Outputs) => unknown;
-interface Projection { readonly leaves: readonly string[]; readonly resolve: Resolver }
+interface Projection { readonly leaves: readonly string[]; readonly requiresInput: boolean; readonly resolve: Resolver }
 interface FlatNode {
   id: string; type: NodeType; dependencies: readonly string[]; bind: Resolver;
   validate?: (output: unknown) => void;
@@ -98,7 +107,21 @@ interface ParsedNode {
   id: string; type?: string; child?: string; dependencies: readonly string[]; input: Expression;
   validate?: (output: unknown) => void;
 }
-interface ParsedGraph { nodes: readonly ParsedNode[]; output: Expression }
+interface ParsedGraph { nodes: readonly ParsedNode[]; output: Expression; outputReferences: ReadonlySet<string> }
+
+/** Resolve only the projected fields, once per expression evaluation. */
+function lazyScope(entries: readonly (readonly [string, () => unknown])[]): Record<string, unknown> {
+  const scope: Record<string, unknown> = {};
+  for (const [key, resolve] of entries) Object.defineProperty(scope, key, {
+    enumerable: true, configurable: true,
+    get() {
+      const value = resolve();
+      Object.defineProperty(scope, key, { value, enumerable: true });
+      return value;
+    },
+  });
+  return scope;
+}
 
 /** Compile JSON into the existing DAG scheduler and one outer Loop, without eval or SDK calls. */
 export function compileAgent(source: unknown): CompiledAgent {
@@ -106,12 +129,13 @@ export function compileAgent(source: unknown): CompiledAgent {
   fields(root, ["version", "id", "graphs", "entry", "loop", "config", "deployment"], "definition");
   if (root.version !== 1) fail("version", "expected 1");
   const id = name(root.id, "id");
-  const config = root.config ?? {};
-  const expr = (value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[]): Expression => {
-    const evaluate = expression(value, [...roots, "config"], where, dependencies);
-    return scope => evaluate({ ...scope, config });
+  const config = root.config === undefined ? {} : root.config;
+  const expr = (value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[], references?: Set<string>): Expression => {
+    const evaluate = expression(value, [...roots, "config"], where, dependencies, references);
+    // Scopes are fresh compiler-owned objects; keep lazy properties intact.
+    return scope => evaluate(Object.assign(scope, { config }));
   };
-  const deployment = parseDeployment(root.deployment ?? {});
+  const deployment = parseDeployment(root.deployment === undefined ? {} : root.deployment);
   if (root.entry !== undefined && (root.entry !== "main" || root.loop !== undefined)) fail(id, "entry must be main and cannot accompany loop");
   const definitions = record(root.graphs, "graphs");
   if (!Object.hasOwn(definitions, "main")) fail("graphs", "a main Graph is required");
@@ -127,7 +151,7 @@ export function compileAgent(source: unknown): CompiledAgent {
       fields(node, ["id", "kind", "type", "graph", "dependsOn", "input", "require"], where);
       if (nodes.has(nodeId)) fail(where, "duplicate node ID");
       if (node.kind !== undefined && node.kind !== "node" && node.kind !== "subgraph") fail(where, "invalid kind");
-      const dependencies = node.dependsOn ?? [];
+      const dependencies = node.dependsOn === undefined ? [] : node.dependsOn;
       if (!Array.isArray(dependencies)) fail(where, "dependsOn must be an array");
       const deps = dependencies.map(d => name(d, where));
       if (new Set(deps).size !== deps.length) fail(where, "duplicate dependency");
@@ -169,9 +193,12 @@ export function compileAgent(source: unknown): CompiledAgent {
       if (!pending) sorted.push(nodes.get(child)!);
     }
     if (sorted.length !== nodes.size) fail(graphId, "cyclic dependency; use Loop for cycles");
-    parsed.set(graphId, { nodes: sorted, output: Object.hasOwn(body, "output")
-      ? expr(body.output, ["input", "nodes"], `${graphId}.output`, [...nodes.keys()])
-      : scope => scope.nodes });
+    const hasOutput = Object.hasOwn(body, "output");
+    const outputReferences = new Set<string>(hasOutput ? [] : ["nodes"]);
+    const output = hasOutput
+      ? expr(body.output, ["input", "nodes"], `${graphId}.output`, [...nodes.keys()], outputReferences)
+      : (scope: Outputs) => ({ ...(scope.nodes as Outputs) });
+    parsed.set(graphId, { nodes: sorted, output, outputReferences });
   }
 
   const graphs: Record<string, ExecutionGraph<unknown, Record<string, unknown>>> = {};
@@ -182,7 +209,7 @@ export function compileAgent(source: unknown): CompiledAgent {
     function expand(key: string, prefix: string, getInput: Resolver, inherited: readonly string[], stack: readonly string[]): Projection {
       if (stack.includes(key) || stack.length >= 32) fail(key, "recursive or excessively nested subgraph");
       const body = parsed.get(key)!, logical = new Map<string, Projection>();
-      const leaves: string[] = [];
+      const start = flat.length;
       for (const node of body.nodes) {
         const expandedId = `${prefix}${node.id}`;
         const dependencies = [...new Set([...inherited, ...node.dependencies.flatMap(d => logical.get(d)!.leaves)])];
@@ -198,13 +225,20 @@ export function compileAgent(source: unknown): CompiledAgent {
           if (++totalLeaves > 20_000) fail(graphId, "expanded node limit exceeded");
           flat.push({ id: expandedId, type: node.type as NodeType, dependencies, bind,
             ...(node.validate ? { validate: node.validate } : {}) });
-          projected = { leaves: [expandedId], resolve: (_input, outputs) => outputs[expandedId] };
+          projected = { leaves: [expandedId], requiresInput: false, resolve: (_input, outputs) => outputs[expandedId] };
         }
-        logical.set(node.id, projected); leaves.push(...projected.leaves);
+        logical.set(node.id, projected);
       }
-      return { leaves: [...new Set([...inherited, ...leaves])], resolve: (input, outputs) => body.output({ input: getInput(input, outputs),
-        nodes: Object.fromEntries([...logical].map(([key, p]) => [key, p.resolve(input, outputs)])),
-      }) };
+      const entries = [...logical], refs = body.outputReferences;
+      const requiresInput = refs.has("input") || entries.some(([key, p]) => p.requiresInput && (refs.has("nodes") || refs.has(`nodes.${key}`)));
+      // Own leaves already impose completion barriers. Ancestors are needed only to project input-derived outputs.
+      const leaves = flat.slice(start).map(node => node.id);
+      return { leaves: requiresInput ? [...new Set([...inherited, ...leaves])] : leaves, requiresInput,
+        resolve: (input, outputs) => body.output(lazyScope([
+          ["input", () => getInput(input, outputs)],
+          ["nodes", () => lazyScope(entries.map(([key, p]) => [key, () => p.resolve(input, outputs)] as const))],
+        ])),
+      };
     }
     const projection = expand(graphId, "", input => input, [], []);
     const plan = ExecutionGraph.fromTasks<unknown>(graphId, flat.map(node => ({
@@ -239,7 +273,7 @@ export function compileAgent(source: unknown): CompiledAgent {
       if (!parsed.has(target)) fail(key, `unknown Graph ${target}`);
       if (!Object.hasOwn(step, "input")) fail(key, "input is required");
       const input = expr(step.input, ["input", "state"], `${key}.input`);
-      const updates = record(step.assign ?? {}, `${key}.assign`);
+      const updates = record(step.assign === undefined ? {} : step.assign, `${key}.assign`);
       for (const field of Object.keys(updates)) name(field, `${key}.assign`);
       const assign = expr(updates, ["input", "state", "result"], `${key}.assign`);
       if (!Array.isArray(step.transitions) || !step.transitions.length) fail(key, "transitions must be nonempty");
@@ -292,7 +326,7 @@ export function compileAgent(source: unknown): CompiledAgent {
 function parseDeployment(raw: unknown): AgentDeployment {
   const deployment = record(raw, "deployment");
   fields(deployment, ["workers", "bindings"], "deployment");
-  const bindings = record(deployment.bindings ?? {}, "bindings");
+  const bindings = record(deployment.bindings === undefined ? {} : deployment.bindings, "bindings");
   for (const [key, raw] of Object.entries(bindings)) {
     name(key, "binding Graph");
     for (const value of Object.values(record(raw, key))) name(value, "Worker binding");
@@ -341,7 +375,6 @@ export async function createAgent(source: unknown, options: CreateAgentOptions):
   const deployment = compiled.definition.deployment ?? {};
   const bindings = deployment.bindings ?? {};
   const requested = deployment.workers ?? Object.keys(registry).map(id => ({ id, use: id }));
-  if (!Array.isArray(requested)) fail("deployment.workers", "expected an array");
   const registrations = requested.map(raw => {
     const entry = record(raw, "deployment.workers");
     const id = name(entry.id, "Worker id"), use = name(entry.use, "Worker registry key");

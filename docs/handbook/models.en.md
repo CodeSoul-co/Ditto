@@ -26,7 +26,7 @@ const config = loadRuntimeConfig(process.env);
 const runtime = createDitto({ config, workers: [createInferWorker()] });
 ```
 
-Start with `node --env-file=.env app.ts`. The configuration loader does not locate `.env` or automatically read YAML. For YAML, explicitly call `loadRuntimeConfigFile("ditto.yaml",process.env)`. See the [configuration reference](../worker-api/configuration.md) for precedence, behavior settings and credentials.
+Start with `node --env-file=.env app.ts`. Runtime creation automatically reads `./ditto.yaml` and `process.env` unless an explicit `config` is supplied. `.env` is not loaded automatically. See the [configuration reference](../worker-api/configuration.md) for precedence, behavior settings and credentials.
 
 ## 2. First sample
 

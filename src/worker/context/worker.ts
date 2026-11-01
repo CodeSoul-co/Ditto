@@ -104,19 +104,31 @@ export interface ContextWorkerOptions extends ContextOptions {
 }
 
 export function createContextWorker(options: ContextWorkerOptions = {}): WorkerDefinition {
+  type ClientForPolicy = (policy: Partial<ContextPolicy> | undefined) => ContextClient;
   return defineWorker({
     type: "CONTEXT",
-    resources: () => createContext({
-      ...(options.policy === undefined ? {} : { policy: options.policy }),
-      services: options.servicesFactory?.() ?? options.services ?? {},
-      ...(options.redis === undefined ? {} : { redis: options.redis }),
-    }),
+    resources: (): ClientForPolicy => {
+      const policy = { ...options.policy };
+      const services = options.servicesFactory?.() ?? options.services ?? {};
+      const create = (defaults?: Partial<ContextPolicy>) => createContext({
+        policy: { ...defaults, ...policy }, services,
+        ...(options.redis === undefined ? {} : { redis: options.redis }),
+      });
+      const base = create(), clients = new WeakMap<Partial<ContextPolicy>, ContextClient>();
+      // Runtime settings are immutable: resolve policy once, sharing the same resources.
+      return defaults => {
+        if (!defaults) return base;
+        let client = clients.get(defaults);
+        if (!client) { client = create(defaults); clients.set(defaults, client); }
+        return client;
+      };
+    },
     ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }),
     nodes: {
-      "CONTEXT.LOAD": (input: ContextInput<"CONTEXT.LOAD">, ctx: WorkerContext<ContextClient>) => ctx.resources.load(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
-      "CONTEXT.SELECT": (input: ContextInput<"CONTEXT.SELECT">, ctx: WorkerContext<ContextClient>) => ctx.resources.select(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
-      "CONTEXT.UPDATE": (input: ContextInput<"CONTEXT.UPDATE">, ctx: WorkerContext<ContextClient>) => ctx.resources.update(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
-      "CONTEXT.COMPRESS": (input: ContextInput<"CONTEXT.COMPRESS">, ctx: WorkerContext<ContextClient>) => ctx.resources.compress(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
+      "CONTEXT.LOAD": (input: ContextInput<"CONTEXT.LOAD">, ctx: WorkerContext<ClientForPolicy>) => ctx.resources(ctx.services.config.context.policy).load(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
+      "CONTEXT.SELECT": (input: ContextInput<"CONTEXT.SELECT">, ctx: WorkerContext<ClientForPolicy>) => ctx.resources(ctx.services.config.context.policy).select(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
+      "CONTEXT.UPDATE": (input: ContextInput<"CONTEXT.UPDATE">, ctx: WorkerContext<ClientForPolicy>) => ctx.resources(ctx.services.config.context.policy).update(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
+      "CONTEXT.COMPRESS": (input: ContextInput<"CONTEXT.COMPRESS">, ctx: WorkerContext<ClientForPolicy>) => ctx.resources(ctx.services.config.context.policy).compress(input, { runtime: ctx, ...(ctx.signal ? { signal: ctx.signal } : {}) }),
     },
   });
 }

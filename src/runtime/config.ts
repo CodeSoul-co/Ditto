@@ -1,3 +1,13 @@
+/**
+ * createAgent()/createDitto() load ./ditto.yaml + process.env unless config is supplied.
+ * A missing default file uses env + built-ins; malformed/unreadable files fail.
+ * Explicit loadRuntimeConfigFile(path) still requires that file. .env is not loaded here.
+ * YAML owns behavior defaults; env owns credentials, endpoints and permissions.
+ * They are not global override layers. agent.json.config is separate application data.
+ * Agent loop.maxIterations wins over the Runtime fallback; run concurrency wins
+ * over config.graphConcurrency. Node/Worker defaults follow their own contracts
+ * (e.g. Memory limit: Node input > factory defaults > YAML > built-in).
+ */
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { validateRuntimeSettings, type RuntimeSettings, type InferSettings } from "./settings.js";

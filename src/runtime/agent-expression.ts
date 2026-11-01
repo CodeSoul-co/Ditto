@@ -71,10 +71,10 @@ function number(value: unknown, where: string): number {
 }
 
 /** Expressions are compiled once, never evaluated as JavaScript. */
-export function expression(value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[]): Expression {
+export function expression(value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[], references?: Set<string>): Expression {
   if (value === null || typeof value !== "object") return () => value;
   if (Array.isArray(value)) {
-    const items = value.map((v, i) => expression(v, roots, `${where}[${i}]`, dependencies));
+    const items = value.map((v, i) => expression(v, roots, `${where}[${i}]`, dependencies, references));
     return scope => items.map(fn => fn(scope));
   }
   const object = record(value, where);
@@ -85,10 +85,11 @@ export function expression(value: unknown, roots: readonly string[], where: stri
   if (Object.hasOwn(object, "$ref")) {
     fields(object, ["$ref", "default"], where);
     const parts = pathParts(object.$ref, where);
+    references?.add(parts.slice(0, parts[0] === "nodes" ? 2 : 1).join("."));
     if (!roots.includes(parts[0]!)) fail(where, `unknown reference root ${parts[0]}`);
     if (parts[0] === "nodes" && dependencies && (!parts[1] || !dependencies.includes(parts[1])))
       fail(where, "node references must name a declared dependency");
-    const fallback = Object.hasOwn(object, "default") ? expression(object.default, roots, where, dependencies) : undefined;
+    const fallback = Object.hasOwn(object, "default") ? expression(object.default, roots, where, dependencies, references) : undefined;
     return scope => {
       const found = lookup(scope, parts);
       if (found !== undefined) return structuredClone(found);
@@ -101,9 +102,11 @@ export function expression(value: unknown, roots: readonly string[], where: stri
     const mapping = record(object.$map, where);
     fields(mapping, ["items", "value"], where);
     if (!Object.hasOwn(mapping, "items") || !Object.hasOwn(mapping, "value")) fail(where, "$map requires items and value");
-    const items = expression(mapping.items, roots, where, dependencies);
-    const project = expression(mapping.value, [...roots, "item", "index"], where, dependencies);
-    return scope => array(items(scope), where).map((item, index) => project({ ...scope, item, index }));
+    const items = expression(mapping.items, roots, where, dependencies, references);
+    const project = expression(mapping.value, [...roots, "item", "index"], where, dependencies, references);
+    return scope => array(items(scope), where).map((item, index) => project(Object.assign(
+      Object.defineProperties({}, Object.getOwnPropertyDescriptors(scope)), { item, index },
+    )));
   }
   if (Object.hasOwn(object, "$op")) {
     fields(object, ["$op", "args"], where);
@@ -115,7 +118,7 @@ export function expression(value: unknown, roots: readonly string[], where: stri
     const op = String(object.$op);
     if (!Object.hasOwn(arities, op) || !Array.isArray(object.args) || object.args.length !== arities[op])
       fail(where, "unknown operator or invalid argument count");
-    const args = object.args.map(v => expression(v, roots, where, dependencies));
+    const args = object.args.map(v => expression(v, roots, where, dependencies, references));
     return scope => {
       const a = args[0]!(scope);
       if (op === "and") return boolean(a, where) && boolean(args[1]!(scope), where);
@@ -149,7 +152,7 @@ export function expression(value: unknown, roots: readonly string[], where: stri
   }
   const entries = Object.entries(object).map(([key, v]) => {
     if (key.startsWith("$")) fail(where, `unknown expression ${key}; use $literal for literal data`);
-    return [key, expression(v, roots, `${where}.${key}`, dependencies)] as const;
+    return [key, expression(v, roots, `${where}.${key}`, dependencies, references)] as const;
   });
   return scope => Object.fromEntries(entries.map(([key, fn]) => [key, fn(scope)]));
 }

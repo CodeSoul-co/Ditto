@@ -27,6 +27,11 @@ async function runFirstJavaScriptBlock(document: string, expected: string) {
     assert.ok(definition, `Missing agent.json in ${document}`);
     await writeFile(join(app, "agent.json"), JSON.stringify(JSON.parse(definition)));
   }
+  if (/```yaml\n/.test(markdown)) {
+    const settings = /```yaml\n([\s\S]*?)\n```/.exec(markdown)?.[1];
+    assert.ok(settings, `Missing ditto.yaml in ${document}`);
+    await writeFile(join(app, "ditto.yaml"), settings);
+  }
   await writeFile(join(app, "readme-example.mjs"), code);
   assert.ok((await run(process.execPath, ["readme-example.mjs"])).includes(expected), document);
 }
@@ -71,6 +76,9 @@ try {
   assert.deepEqual(events[0].nodes,['prepare/loaded','selected']);
 } finally {await agent.close();}`]);
   report.standardTemplate = { npmIncluded: true, copiedAndExecuted: true, subgraph: true, multipleNodes: true, loopReconfigured: true };
+  await cp(join(root, "scripts/fixtures/agent-configuration.mjs"), join(app, "agent-configuration.mjs"));
+  await run(process.execPath, ["agent-configuration.mjs"]);
+  report.configurationFiles = { automaticYaml: true, contextPolicyInherited: true, yaml: true, env: true, agent: true, concurrency: true, loopPrecedence: true, contextPolicy: true, toolPermissions: true };
   await run(process.execPath, ["--input-type=module", "-e", `import assert from 'node:assert/strict';
 for(const name of ${JSON.stringify(Object.keys(core.exports).map(k => core.name + (k === "." ? "" : k.slice(1))))}) await import(name);
 const {BranchStore,checkpointState,restoreState,TokenBudget,budgetedProvider}=await import(${JSON.stringify(core.name)});

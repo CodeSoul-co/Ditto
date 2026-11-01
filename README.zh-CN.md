@@ -17,9 +17,11 @@
 
 **[通过配置文件构建 Agent](docs/agent-json.zh-CN.md)** · [开发者搭建手册](docs/handbook/index.md)
 
+**配置约定：** 创建 Agent 时默认读取当前工作目录的 `ditto.yaml`，显式传入的 Runtime `config` 优先。优先级按参数决定：Agent 的 Loop 预算优先于 Runtime 默认值，调用时的并发参数优先于 YAML；`agent.json.config` 是独立业务参数，不与 YAML 合并。完整顺序见下方配置表。
+
 ## 安装与使用
 
-要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.3` 或更高版本。
+要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.4` 或更高版本。
 
 ```sh
 npm init -y
@@ -33,44 +35,80 @@ npm install @codesoul-co/ditto
 cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
 ```
 
-在源码仓库中则执行 `cp agent_example.json agent.json`。下面是更小的单图多节点版本（LOAD → SELECT），也可保存为 `agent.json`，两种配置共用下方宿主代码。
+在源码仓库中执行 `cp agent_example.json agent.json`。完整配置如下：外层 Loop 执行 main，main 引用 load-context Subgraph，再执行 SELECT；`deployment` 注册并绑定 Worker。
 
 ```json
 {
   "version": 1,
-  "id": "hello",
+  "id": "agent-example",
+  "config": { "selectionLimit": 1, "repetitions": 1 },
   "graphs": {
     "main": {
       "nodes": [
         {
-          "id": "loaded",
-          "type": "CONTEXT.LOAD",
-          "input": {
-            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
-          }
+          "id": "prepare", "kind": "subgraph", "graph": "load-context",
+          "input": { "$ref": "input" }
         },
         {
-          "id": "selected",
-          "type": "CONTEXT.SELECT",
-          "dependsOn": ["loaded"],
+          "id": "selected", "type": "CONTEXT.SELECT", "dependsOn": ["prepare"],
           "input": {
-            "context": { "$ref": "nodes.loaded" },
-            "purpose": "infer",
-            "limit": 1
+            "context": { "$ref": "nodes.prepare" }, "purpose": "infer",
+            "limit": { "$ref": "config.selectionLimit" }
           }
         }
       ],
       "output": { "$ref": "nodes.selected.context.items.0.content" }
+    },
+    "load-context": {
+      "nodes": [{
+        "id": "loaded", "type": "CONTEXT.LOAD",
+        "input": { "sources": [{ "role": "user", "content": { "$ref": "input" } }] }
+      }],
+      "output": { "$ref": "nodes.loaded" }
     }
+  },
+  "loop": {
+    "entry": "prepare", "maxIterations": 8,
+    "state": { "round": 0, "result": null },
+    "steps": {
+      "prepare": {
+        "graph": "main", "input": { "$ref": "input" },
+        "assign": {
+          "round": { "$op": "add", "args": [{ "$ref": "state.round" }, 1] },
+          "result": { "$ref": "result" }
+        },
+        "transitions": [
+          {
+            "when": { "$op": "gte", "args": [{ "$ref": "state.round" }, { "$ref": "config.repetitions" }] },
+            "end": "completed"
+          },
+          { "next": "prepare" }
+        ]
+      }
+    },
+    "output": { "$ref": "state.result" }
   },
   "deployment": {
     "workers": [{ "id": "context", "use": "context" }],
-    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+    "bindings": {
+      "main": { "prepare/loaded": "context", "selected": "context" }
+    }
   }
 }
 ```
 
-宿主入口 `app.mjs`：
+默认执行一轮；将 `config.repetitions` 改成 `2` 会执行两轮，`loop.maxIterations` 是总执行预算。另存以下运行参数为 `ditto.yaml`：
+
+```yaml
+runtime:
+  graphConcurrency: 4
+workers:
+  context:
+    policy:
+      maxItems: 256
+```
+
+保存为 `app.mjs`，执行 `node app.mjs`：
 
 ```js
 import { readFile } from "node:fs/promises";
@@ -84,6 +122,27 @@ const agent = await createAgent(definition, {
 try { console.log(await agent.run("Hello Ditto")); }
 finally { await agent.close(); }
 ```
+
+| 配置 | 职责 |
+| --- | --- |
+| `agent.json` | main、Subgraph、Node 依赖、Loop 分支/停止条件、业务参数和 Worker 绑定 |
+| `ditto.yaml` | Runtime 与 Worker 的行为默认值，创建 Agent / Runtime 时自动读取 |
+| `.env` | 凭证、地址、模型选择和部署权限；需要时用 `node --env-file=.env app.mjs` 加载 |
+
+创建 `createAgent()` / `createDitto()` 时，默认从当前工作目录（`process.cwd()`）读取 `ditto.yaml`，并结合已有的 `process.env` 生成 Runtime 配置；不需要手动调用加载器，也不会向上搜索目录。默认文件不存在时使用环境变量和内置默认值；格式错误、非法参数或无法读取时直接报错。每个 Runtime 启动时读取一次，不在每次 Node 调用时重读。传入 `config` 会完全跳过自动加载；自定义路径可使用 `config: loadRuntimeConfigFile("path/to/ditto.yaml")`，仅需内置默认值可使用 `config: loadRuntimeConfig({})`。`.env` 文件仍由应用或 `node --env-file=.env` 加载，导入 npm 包和 `compileAgent()` 不读取文件。
+
+优先级按具体参数决定，两个文件不会整体合并：
+
+| 参数 | 生效顺序（左侧优先） |
+| --- | --- |
+| Runtime 配置来源 | 显式 `createAgent(..., { config })` / `createDitto({ config })` → 自动读取 `./ditto.yaml` 与进程环境变量 → 各字段内置默认值 |
+| Loop 执行预算 | `agent.json.loop.maxIterations`；配置 `loop` 时此项必填。YAML 的 `runtime.loopMaxIterations` 只为未指定预算的代码式 Loop 提供默认值；未配置 `loop` 的 Agent 只执行一次 main |
+| Graph 并发 | `agent.run(input, { concurrency })` → YAML `runtime.graphConcurrency` → 内置默认值 `Infinity` |
+| Memory 查询数量 | Node 输入 `limit`（可在 `agent.json` 中指定）→ Worker 工厂 `defaults.queryLimit` → YAML `workers.memory.queryLimit` → 内置默认值 `100` |
+| 业务参数 | `agent.json.config` 仅供 `$ref: "config.…"` 引用，不覆盖 YAML 或宿主 Runtime `config` |
+| Context 策略 | Worker 工厂 `policy` 的显式字段 → YAML `workers.context.policy` → 内置默认值；`createContextWorker()` 自动使用 Runtime 策略 |
+
+环境变量提供凭证、地址、模型选择与部署权限，YAML 提供行为默认值，两者按字段分工，并无通用的“环境变量覆盖 JSON/YAML”规则。其他 Node 参数以各自契约为准；Node 输入不能借由默认值覆盖规则授予工具权限。数据库、工具与服务配置仍由宿主创建并注入。
 
 第一张 Graph 不需要模型、Redis 或凭证。完整 Agent 使用真实模型、Redis Context 和数据库 Memory，详见[非常详细的 npm 包使用教程](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)：从空项目安装、TypeScript、API 返回值、工具注册、Loop 组合，到持久化、跨进程恢复、产物输出和故障排查。
 

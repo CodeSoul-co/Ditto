@@ -26,7 +26,7 @@ const config = loadRuntimeConfig(process.env);
 const runtime = createDitto({ config, workers: [createInferWorker()] });
 ```
 
-启动命令为 `node --env-file=.env app.ts`。配置加载器不会自行寻找 `.env`；也不会在未指定时自动读取 YAML。需要 YAML 时显式调用 `loadRuntimeConfigFile("ditto.yaml", process.env)`。环境覆盖、行为参数与凭据分组见[配置参考](../worker-api/configuration.zh-CN.md)。
+启动命令为 `node --env-file=.env app.ts`。创建 Runtime 时默认读取工作目录的 `ditto.yaml` 和 `process.env`；显式 `config` 优先。`.env` 不会自动加载。环境覆盖、行为参数与凭据分组见[配置参考](../worker-api/configuration.zh-CN.md)。
 
 ## 2. 第一次采样
 

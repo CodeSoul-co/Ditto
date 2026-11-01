@@ -2,14 +2,14 @@
 
 [English](configuration.md) · [Worker API](README.zh-CN.md)
 
-根目录 [`ditto.yaml`](../../ditto.yaml) 是可提交的行为参数配置；[`.env.example`](../../.env.example) 是部署模板，真实 `.env` 被 Git 忽略。Node 用 `--env-file=.env` 加载环境变量，应用显式加载 YAML，默认共享 Runtime services，也可在 register 时为 Worker 注入独立 services。导入库、创建默认 Runtime 不会读取文件或环境变量。
+根目录 [`ditto.yaml`](../../ditto.yaml) 是可提交的行为参数配置；[`.env.example`](../../.env.example) 是部署模板，真实 `.env` 被 Git 忽略。Node 用 `--env-file=.env` 加载环境变量。`createAgent()` / `createDitto()` 启动时默认读取一次当前工作目录的 `ditto.yaml` 和 `process.env`，显式传入 `config` 时跳过自动读取。默认文件缺失时使用环境变量及内置默认值；导入库和编译定义不读取配置文件。Worker 默认共享 Runtime services，也可在 register 时注入独立 services。
 
 ```ts
-import { createDitto, createInfer, createInferWorker, loadRuntimeConfigFile } from "@codesoul-co/ditto";
-const config = loadRuntimeConfigFile("ditto.yaml", process.env);
-if (!config.model) throw new Error("Configure the default model in .env");
-const runtime = createDitto({ config, workers: [createInferWorker()] });
+import { createDitto, createInfer, createInferWorker } from "@codesoul-co/ditto";
+const runtime = createDitto({ workers: [createInferWorker()] });
+const config = runtime.services.config;
 try {
+  if (!config.model) throw new Error("Configure the default model in .env");
   const infer = createInfer({ runtime });
   const result = await infer.reasoning.trajectory({
     model: { provider: config.model!.provider, model: config.model!.model },
@@ -73,7 +73,7 @@ loadRuntimeConfig(env = process.env, settings: RuntimeSettings = {}): RuntimeCon
 
 第一个接口读取 UTF-8 YAML；相对路径基于当前工作目录。第二个是纯配置解析，供测试、嵌入式应用传对象使用，不访问文件。加载后返回不可变配置快照，包含 `environment/workspace/model/providers/timeoutMs/maxTurns/graphConcurrency/loopMaxIterations/infer/context/interaction/memory/retrieval/react/sandbox/sandboxExecution`。配置只读取一次；修改 YAML 后需重新加载并创建 Runtime。Worker 通过 `ctx.services.config` 访问所属 services 的配置快照。
 
-缺失文件、空文件、非对象、未知字段、重复键、YAML alias、非法数字在启动时抛错，不静默退回默认值。只使用标准 YAML 数据结构，不使用自定义 tag 或 merge key。显式自定义 `providers` Registry 时，Runtime 不再从配置构建 HTTP Provider。
+显式调用 `loadRuntimeConfigFile(path)` 时文件必须存在；只有默认自动加载允许缺失 `ditto.yaml`。空文件、非对象、未知字段、重复键、YAML alias、非法数字在启动时抛错，不静默退回默认值。只使用标准 YAML 数据结构，不使用自定义 tag 或 merge key。显式自定义 `providers` Registry 时，Runtime 不再从配置构建 HTTP Provider。
 
 不读取 YAML 或环境变量的嵌入式调用：第二个参数使用与 YAML 相同的 RuntimeSettings 结构；实际应用仍推荐根目录统一 YAML。
 
@@ -139,7 +139,7 @@ DELIBERATE 的 mode/selectCount 优先使用请求字段，再使用 workers.inf
 
 ## CONTEXT
 
-`workers.context` 在启动时解析到 `config.context`；创建 SDK/Worker 时显式传入，不会自动连接 Redis。
+`workers.context` 在启动时解析到 `config.context`；Context Worker 自动继承其中的 `policy`，工厂显式策略字段优先。独立 SDK 与资源适配器仍使用显式设置，加载配置不会自动连接 Redis。
 
 ```yaml
 workers:

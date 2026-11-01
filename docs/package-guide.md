@@ -96,7 +96,7 @@ node app.mjs
 
 The JSON definition compiles real CONTEXT.LOAD → CONTEXT.SELECT operations and projects its first item. This is a local Context API introduction, not a persistent Agent.
 
-`createDitto()` does not automatically register Workers or read YAML/`.env`. This first call needs no environment or YAML configuration.
+`createDitto()` automatically reads `./ditto.yaml` and `process.env` unless `config` is supplied. A missing default file uses built-in defaults; `.env` must be loaded separately. Workers still require registration.
 
 ## 3. Run and check TypeScript
 
@@ -224,7 +224,7 @@ const config = loadRuntimeConfig(process.env, {
 });
 ```
 
-Start with `node --env-file=.env app.ts`. The loader parses the supplied environment and settings but does not load `.env` itself. Existing environment variables take precedence over Node's env file. For YAML use `loadRuntimeConfigFile("ditto.yaml", process.env)` with an application-owned file, not a path inside the installed package.
+Start with `node --env-file=.env app.ts`. The loader parses the supplied environment and settings but does not load `.env` itself. Existing environment variables take precedence over Node's env file. For YAML, place `ditto.yaml` in the working directory and omit the Runtime `config` option to use automatic loading. An explicit `config` replaces this; `loadRuntimeConfigFile(path)` remains available for custom paths.
 
 `createInferWorker()` reuses the Runtime's provider configuration. The complete Agent calls INFER.REASONING.SAMPLE through a Graph and checks status and answer content; inference alone is only one stage of the task.
 
