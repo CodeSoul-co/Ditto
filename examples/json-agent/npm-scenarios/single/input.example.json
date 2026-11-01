@@ -1,0 +1,9 @@
+{
+  "text": "A😀B",
+  "mode": "research",
+  "prompt": "Count Unicode code points in exactly A😀B. Use token demo-1.",
+  "token": "demo-1",
+  "memoryKey": "tutorial-demo-1",
+  "deliveryId": "demo-1",
+  "scope": { "sessionId": "tutorial", "turnId": "demo-1" }
+}

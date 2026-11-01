@@ -1,6 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createAgent, createRuntimeServices, loadRuntimeConfig, type LoopGraphEvent } from "@codesoul-co/ditto/runtime";
+import { createAgent, createRuntimeServices, type LoopGraphEvent } from "@codesoul-co/ditto/runtime";
 import type { WorkerDefinition } from "@codesoul-co/ditto/worker";
 import { createInferWorker } from "@codesoul-co/ditto/worker/infer";
 import { createInteractionWorker } from "@codesoul-co/ditto/worker/interaction";
@@ -16,14 +16,12 @@ export function createTrace() {
   return { modelCalls: 0, searches: 0, tools: [] as { text: string; token: string }[], deliveries: 0, graphs: [] as LoopGraphEvent[] };
 }
 
-/** Only resource/implementation wiring lives here. All orchestration is in the selected agent.json. */
-export async function runScenario(definition: unknown, request: ScenarioRequest, directory: string,
-  textWorker: WorkerDefinition, trace = createTrace()) {
-  if (!request || !/^[a-zA-Z0-9_-]{1,64}$/.test(request.deliveryId) || typeof request.prompt !== "string") throw new Error("Invalid request");
+/** Application-owned resources, opened once and reused by local or remote Workers. */
+export async function openScenarioResources(directory: string, textWorker?: WorkerDefinition, trace = createTrace()) {
   await mkdir(directory, { recursive: true });
-  const config = loadRuntimeConfig(process.env, { runtime: { timeoutMs: 60_000 }, workers: { context: { cache: { ttlMs: 300_000 } } } });
+  const services = createRuntimeServices({});
+  const config = services.config;
   if (!config.model) throw new Error("Configure a real model for the npm scenarios");
-  const services = createRuntimeServices({ config });
   const provider = services.providers.get(config.model.provider);
   const storage = await openAgentStorage(directory, config);
   try {
@@ -34,8 +32,8 @@ export async function runScenario(definition: unknown, request: ScenarioRequest,
       const query = String(input.query.content).toLowerCase();
       return { target: input.target, candidates: documents.filter(d => d.content.toLowerCase().includes(query)).slice(0, input.limit ?? 5) };
     } });
-    const agent = await createAgent(definition, { config, workers: {
-      context: storage.workers[0]!, memory: storage.workers[1]!, text: textWorker,
+    return { config, model: config.model, trace, workers: {
+      context: storage.workers[0]!, memory: storage.workers[1]!, ...(textWorker ? { text: textWorker } : {}),
       infer: createInferWorker({ providers: { [config.model.provider]: {
         async invoke(input, options) { trace.modelCalls++; return provider.invoke(input, options); },
       } } }),
@@ -55,11 +53,27 @@ export async function runScenario(definition: unknown, request: ScenarioRequest,
     }, serviceProfiles: {
       "count-only": createRuntimeServices({ config, sandbox: { tools: ["count_characters"] } }),
       "no-tools": createRuntimeServices({ config, sandbox: { tools: [] } }),
-    } });
+    }, close: () => storage.close() };
+  } catch (error) { await storage.close(); throw error; }
+}
+
+export function validateScenarioRequest(request: ScenarioRequest): void {
+  if (!request || !/^[a-zA-Z0-9_-]{1,64}$/.test(request.deliveryId) || typeof request.prompt !== "string") throw new Error("Invalid request");
+}
+
+/** agent.json owns orchestration; the host owns resources and request identity. */
+export async function runScenario(definition: unknown, request: ScenarioRequest, directory: string,
+  textWorker?: WorkerDefinition, trace = createTrace()) {
+  validateScenarioRequest(request);
+  const resources = await openScenarioResources(directory, textWorker, trace);
+  try {
+    const agent = await createAgent(definition, {
+      config: resources.config, workers: resources.workers, serviceProfiles: resources.serviceProfiles,
+    });
     try {
-      return { result: await agent.run({ ...request, model: config.model }, {
+      return { result: await agent.run({ ...request, model: resources.model }, {
         signal: AbortSignal.timeout(180_000), onGraph: event => trace.graphs.push(event),
       }), trace };
     } finally { await agent.close(); }
-  } finally { await storage.close(); }
+  } finally { await resources.close(); }
 }

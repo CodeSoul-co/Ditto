@@ -1,0 +1,9 @@
+runtime:
+  timeoutMs: 60000
+  graphConcurrency: 4
+workers:
+  context:
+    policy:
+      maxItems: 256
+    cache:
+      ttlMs: 300000

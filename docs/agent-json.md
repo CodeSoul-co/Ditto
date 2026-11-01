@@ -2,6 +2,8 @@
 
 **English** · [简体中文](agent-json.zh-CN.md)
 
+For a fresh npm project, real resources for five Workers, JSON execution and migration to HTTP Workers, follow the [complete walkthrough](agent-from-zero.md). This page documents the configuration protocol.
+
 Build an Agent from a configuration file. The current format is JSON, with `agent.json` as the standard filename: define a required `main` Graph, optional reusable Subgraphs, optional Loop control, non-secret parameters and deployment references. The host supplies real Worker definitions, tools, credentials and authorized services. `createAgent()` compiles the configuration, registers the selected Workers and exposes `run()` / `close()` through the npm package.
 
 The hierarchy stays **Loop → Graph/Subgraph → Node → Worker**. A Subgraph groups a DAG; it never owns a Loop. Conditions, repetition and stopping belong to the outer Loop. Without `loop`, `main` executes once.

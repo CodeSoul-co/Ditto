@@ -15,7 +15,7 @@
 
 > The definition is [Node System and API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.md). It contains the final Node tree, semantic boundaries, fixed shared types, and every public Node input/output contract.
 
-**[Build an Agent from a configuration file](docs/agent-json.md)** · [Developer handbook](docs/handbook/index.md)
+**[Build a complete Agent from scratch](docs/agent-from-zero.md)** · [Configuration reference](docs/agent-json.md) · [Developer handbook](docs/handbook/index.md)
 
 **Configuration:** Agent creation automatically reads `ditto.yaml` from the working directory; an explicit Runtime `config` takes precedence. Precedence is per parameter: the Agent's Loop budget overrides Runtime defaults, and per-run concurrency overrides YAML. `agent.json.config` holds separate application data and is not merged with YAML. See the configuration table below for the full order.
 
@@ -143,6 +143,47 @@ Precedence depends on the parameter; the two files are not merged wholesale:
 | Context policy | Explicit Worker factory `policy` fields → YAML `workers.context.policy` → built-in defaults; `createContextWorker()` uses Runtime policy automatically |
 
 Environment variables supply credentials, addresses, model selection and deployment permissions; YAML supplies behavior defaults. They own different fields, with no universal “environment overrides JSON/YAML” rule. Other Node parameters follow their respective contracts; default overrides cannot grant tool permissions. The host still creates and injects databases, tools and service profiles.
+
+### From zero to a complete Agent: resources, JSON and deployment
+
+Follow [Run a complete Agent from scratch, then deploy remote Workers](docs/agent-from-zero.md). This path uses five Workers, a real model, Redis, SQLite and tool execution. Its 13-node main Graph is orchestrated entirely by `agent.json`.
+
+| Worker | Where resources are connected |
+| --- | --- |
+| Context | Connect an application Redis client and pass it to `createContextWorker({ redis: { client } })` |
+| Memory | Supply a SQLite / other database `MemoryStore` through `createMemoryWorker({ store })` |
+| Infer | Configure model endpoint, key, model name and network permission in `.env`; Runtime builds the HTTP Provider |
+| Interaction | Register tool implementations, an OutputSink and permitted-tool service profiles in the host |
+| Retrieval | Install the separate package and inject a file / vector-service search Provider |
+
+Download application examples into an empty directory and install published npm packages:
+
+```sh
+mkdir my-ditto-agent
+cd my-ditto-agent
+curl -fL https://codesoul-co.github.io/Ditto/downloads/ditto-examples.zip -o examples.zip
+unzip -q examples.zip
+npm install
+cp examples/package-basics/.env.example .env
+cp examples/json-agent/npm-scenarios/single/ditto.example.yaml ditto.yaml
+cp examples/json-agent/npm-scenarios/single/agent.json agent.json
+cp examples/json-agent/npm-scenarios/single/input.example.json input.json
+mkdir -p task
+cp examples/json-agent/npm-scenarios/single/guide.example.json task/guide.json
+```
+
+Fill in real model credentials, the permitted network origin and Redis URL in `.env`, then start Redis. The application creates SQLite automatically; this five-Worker path needs no third-party extension. Run:
+
+```sh
+node --env-file=.env examples/json-agent/npm-scenarios/cli.mjs agent.json input.json task
+cat task/answers/demo-1.md
+```
+
+Expect `3`, with a real tool call, Redis Context, `task/memory.sqlite` and an answer file. Use fresh business IDs for each new task. `openScenarioResources()` in [host.ts](examples/json-agent/npm-scenarios/host.ts) opens resources and builds Workers once; the CLI reads JSON and calls `createAgent()` / `agent.run()`. Resource adapters are application source, not built-in Core database connections.
+
+For a long-running service, create resources and the Agent at startup, reuse `agent.run(input)` per request, then drain the Agent before closing Redis/database clients. JSON selects host implementations through `deployment.workers[].use` and instances through `bindings`; it does not implement tools or grant itself permissions.
+
+**Keep the same JSON when deploying across machines.** [remote.mjs](examples/json-agent/npm-scenarios/remote.mjs) provides runnable HTTP server/controller modes. The server owns resources and five registered Workers; the controller uses `compileAgent()`, `createHttpTransport()` and `registerRemote()` to execute the plan. Graph/Loop stay on the controller, Node calls cross HTTP(S), and databases/model keys stay on the execution host. IPC is available for local child processes. See the [complete deployment steps](docs/agent-from-zero.md#6-move-the-same-json-to-http-workers) for tokens, TLS, manifests, shutdown and communication limits; `agent.json` does not automatically deploy or discover remote services.
 
 This first Graph requires no model, Redis or credentials. For a complete Agent, use real model configuration, Redis Context and database Memory as shown in the [detailed package guide](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.md) ([中文](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)). It covers installation, strict TypeScript, every execution entry, result handling, tools, Loop composition, storage, recovery, output and troubleshooting.
 

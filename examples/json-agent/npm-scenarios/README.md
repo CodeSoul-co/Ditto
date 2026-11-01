@@ -2,6 +2,11 @@
 
 **English** · [简体中文](README.zh-CN.md) · [configuration examples](../README.md)
 
+For a fresh project with published npm packages, real resources for five Workers, and local/HTTP execution of the same JSON, follow the [complete walkthrough](../../../docs/agent-from-zero.md). The `single` scenario needs no third-party extension; `custom` / `routed` require the example extension. `openScenarioResources()` supports process-level reuse, and `remote.mjs` provides HTTP server/controller modes.
+
+Run `node --env-file=.env scripts/check-json-agent-package.ts --registry --keep` to verify published versions; the default command still installs local tarballs. Additional checks cover the CLI without an extension, unchanged JSON over real HTTP, server-owned resources for five Workers and incorrect tokens.
+
+
 These scenarios install Core, Retrieval and a separately built third-party Worker tarball outside the repository. Hosts supply implementations and resources through public exports; `agent.json` owns orchestration. No registry publication, source aliases or npm links are involved.
 
 | Scenario | Configuration | Execution |

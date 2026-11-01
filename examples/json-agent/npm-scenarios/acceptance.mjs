@@ -10,6 +10,7 @@ import { createClient } from "redis";
 import { contextScopeKey } from "@codesoul-co/ditto/worker/context";
 import { createTextWorker } from "@ditto-example/text-worker";
 import { createTrace, runScenario } from "./host.ts";
+import { startWorkerServer } from "./remote.mjs";
 
 const exec = promisify(execFile), here = fileURLToPath(new URL(".", import.meta.url));
 const directory = resolve(process.argv[2] ?? "task"), results = [];
@@ -42,13 +43,45 @@ async function absentDelivery(req) {
   assert.equal(await access(join(directory, "answers", `${req.deliveryId}.md`)).then(() => true, () => false), false);
 }
 await mkdir(directory, { recursive: true });
-await writeFile(join(directory, "guide.json"), JSON.stringify([{ id: "unicode", content: "Unicode code points differ from UTF-16 length; count with the tool, not string.length.", source: { ref: "guide.json#unicode" } }]));
+await writeFile(join(directory, "guide.json"), await readFile(join(here, "single/guide.example.json")));
 try {
   await check("single-graph-five-workers", async () => {
     const { trace } = await successful("single", request("single"));
     assert.deepEqual(starts(trace).map(e => e.graphId), ["main"]);
     assert.equal(starts(trace)[0].nodes.length, 13);
     return { workers: ["Context", "Memory", "Infer", "Interaction", "Retrieval"], nodes: 13, modelCalls: trace.modelCalls, nativeToolCalls: trace.tools.length };
+  });
+  await check("standalone-cli-without-third-party-extension", async () => {
+    const req = JSON.parse(await readFile(join(here, "single/input.example.json"), "utf8")), input = join(directory, "cli-input.json");
+    await writeFile(input, JSON.stringify(req));
+    const code = `import {registerHooks} from 'node:module';
+      registerHooks({resolve(specifier, context, next) {if(specifier==='@ditto-example/text-worker') throw Error('Optional extension unavailable'); return next(specifier,context);}});
+      process.argv=[process.execPath,${JSON.stringify(join(here, "cli.mjs"))},${JSON.stringify(join(here, "single/agent.json"))},${JSON.stringify(input)},${JSON.stringify(directory)}];
+      await import(${JSON.stringify(new URL("cli.mjs", import.meta.url).href)});`;
+    const { stdout } = await exec(process.execPath, ["--input-type=module", "-e", code], { timeout: 180_000 });
+    assert.equal(JSON.parse(stdout).result.answer.trim(), "3");
+    return { coreAndRetrievalOnly: true, jsonLoadedByCli: true };
+  });
+  await check("same-json-five-workers-over-http", async () => {
+    const token = randomUUID(), req = request("http");
+    const worker = await startWorkerServer(directory, { token, port: 0 });
+    try {
+      const input = join(directory, "http-input.json"), manifest = join(directory, "deployment.json");
+      await writeFile(input, JSON.stringify(req)); await writeFile(manifest, JSON.stringify(worker.manifest));
+      // Controller has no provider credentials, Redis URL or database connection.
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("DITTO_")));
+      const run = value => exec(process.execPath, [join(here, "remote.mjs"), "run", join(here, "single/agent.json"), input, manifest], {
+        env: { ...env, DITTO_TRANSPORT_HTTP_WORKER_TOKEN: value }, timeout: 180_000,
+      });
+      await assert.rejects(run("wrong-token"), /401/);
+      assert.equal(worker.trace.modelCalls, 0);
+      const { stdout } = await run(token), result = JSON.parse(stdout);
+      assert.equal(result.answer.trim(), "3"); assert.equal(result.token, req.token);
+      assert.equal(worker.trace.modelCalls, 2); assert.equal(worker.trace.tools.length, 1);
+      assert.equal((await readFile(join(directory, "answers", `${req.deliveryId}.md`), "utf8")).trim(), "3");
+      return { separateControllerProcess: true, realHttp: true, workers: worker.manifest.workers.length,
+        unchangedJson: true, serverOwnedResources: true, authenticationChecked: true };
+    } finally { await worker.close(); }
   });
   await check("third-party-npm-node-worker", async () => {
     const req = request("custom"), { result, trace } = await runScenario(await definition("custom"), req, directory, createTextWorker());
