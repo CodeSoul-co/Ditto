@@ -1,5 +1,7 @@
 # Ditto 示例
 
+**从 [agent.json 构建 Agent](json-agent/README.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+
 [开发者手册示例](handbook/README.zh-CN.md)：自定义 Worker、Skill、数据库排序与真实 MCP。
 
 [English](README.md) · [项目首页](../README.zh-CN.md) · [API 参考](../docs/worker-api/README.zh-CN.md)
@@ -10,6 +12,7 @@
 
 | 目录 | 内容 |
 | --- | --- |
+| [json-agent](json-agent/README.zh-CN.md) | 标准 agent.json 入口：单图、main 路由、Subgraph、Loop 和持久化会话 |
 | [package-basics](package-basics/README.zh-CN.md) | npm 安装、Context、工具、独立检索包及持久化多轮 Agent |
 | [control-flow](control-flow/README.zh-CN.md) | 7 类控制流程：顺序、路由、并行、循环、恢复、人工介入、生命周期 |
 | [capabilities](capabilities/README.zh-CN.md) | 12 类基础能力：理解、规划、检索、分析、上下文、记忆、工具、观察、内容、多模态、数据与代码、验证 |

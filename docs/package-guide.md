@@ -1,5 +1,7 @@
 # npm package usage guide
 
+**Standard entry: [configure and run agent.json](agent-json.md).** This page adds npm installation, type checking, resource wiring and code-based composition details.
+
 [简体中文](package-guide.zh-CN.md) · [API reference](worker-api/README.md) · [Runnable basics](../examples/package-basics/README.md)
 
 This guide starts with an empty npm project and covers Worker registration, Graph execution, Loop composition, real model and storage configuration, and reuse of the complete application examples. All framework imports use public package entries.
@@ -27,30 +29,64 @@ npm install @codesoul-co/ditto-retrieval
 
 Use Node.js 24+ and npm 11+. Packages contain ESM JavaScript and TypeScript declarations. There is no CommonJS `require()` build or browser Runtime. JavaScript consumers do not need TypeScript installed.
 
-## 2. Make the first call
+## 2. Make the first call with agent.json
 
-Create `app.mjs`:
+Start with the standard root template [agent_example.json](../agent_example.json). It includes main, a Subgraph, a Loop and Worker registration/bindings; edit ordinary parameters in `config`. After npm installation, copy it:
+
+```sh
+cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
+```
+
+In the source repository, use `cp agent_example.json agent.json`. The smaller single-Graph, multi-node version below (LOAD → SELECT) can also be saved as `agent.json`. Both configurations use the host code below.
+
+```json
+{
+  "version": 1,
+  "id": "hello",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": ["loaded"],
+          "input": {
+            "context": { "$ref": "nodes.loaded" },
+            "purpose": "infer",
+            "limit": 1
+          }
+        }
+      ],
+      "output": { "$ref": "nodes.selected.context.items.0.content" }
+    }
+  },
+  "deployment": {
+    "workers": [{ "id": "context", "use": "context" }],
+    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+  }
+}
+```
+
+Host entry `app.mjs`:
 
 ```js
-import { createDitto, createContextWorker, graph } from "@codesoul-co/ditto";
+import { readFile } from "node:fs/promises";
+import { createAgent } from "@codesoul-co/ditto/runtime";
+import { createContextWorker } from "@codesoul-co/ditto/worker/context";
 
-const runtime = createDitto({ workers: [createContextWorker()] });
-const plan = graph("first-context")
-  .node("loaded", "CONTEXT.LOAD", [], text => ({
-    sources: [{ role: "user", content: text }],
-  }))
-  .node("selected", "CONTEXT.SELECT", ["loaded"], (_input, { loaded }) => ({
-    context: loaded,
-    purpose: "infer",
-    limit: 1,
-  }));
-
-try {
-  const result = await runtime.run(plan, "Hello Ditto");
-  console.log(result.selected.context.items[0].content);
-} finally {
-  await runtime.close();
-}
+const definition = JSON.parse(await readFile("agent.json", "utf8"));
+const agent = await createAgent(definition, {
+  workers: { context: createContextWorker() },
+});
+try { console.log(await agent.run("Hello Ditto")); }
+finally { await agent.close(); }
 ```
 
 ```sh
@@ -58,9 +94,9 @@ node app.mjs
 # Hello Ditto
 ```
 
-`loaded` and `selected` identify tasks inside this Graph. A task's dependency list determines which previous outputs its binding receives. This is a real Context API introduction with no external service, not a persistent Agent.
+The JSON definition compiles real CONTEXT.LOAD → CONTEXT.SELECT operations and projects its first item. This is a local Context API introduction, not a persistent Agent.
 
-`createDitto()` does not automatically register Workers or read YAML/`.env`. This first call needs neither configuration file.
+`createDitto()` does not automatically register Workers or read YAML/`.env`. This first call needs no environment or YAML configuration.
 
 ## 3. Run and check TypeScript
 
@@ -222,7 +258,7 @@ For PostgreSQL, MySQL or vector storage implement/inject the corresponding publi
 ```text
 MEMORY.GET → check latest completed turn
   ├─ completed: output saved answer
-  └─ new: CONTEXT.LOAD → SELECT → INFER.SAMPLE → CONTEXT.UPDATE
+  └─ new: CONTEXT.LOAD → INFER.SAMPLE → CONTEXT.UPDATE
           → MEMORY.WRITE or UPDATE → INTERACTION.OUTPUT → answer file
 ```
 

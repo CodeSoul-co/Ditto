@@ -1,5 +1,7 @@
 # Worker usage API
 
+**Start with [agent.json](../agent-json.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 **English** · [简体中文](README.zh-CN.md) · [Documentation map](../README.md)
 
 These references follow current public exports and cover factories, SDK methods, every Worker node, providers/storage ports, registries, configuration, and lifecycle. Operations include examples; complete TypeScript examples in [examples](examples/README.md) participate in `npm run typecheck`. An interface does not imply an automatic database driver or plugin loader.

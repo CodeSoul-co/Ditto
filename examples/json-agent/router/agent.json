@@ -1,0 +1,249 @@
+{
+  "version": 1,
+  "id": "text-router",
+  "config": {
+    "repetitions": 2
+  },
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "prepare",
+          "kind": "subgraph",
+          "graph": "normalize",
+          "input": {
+            "$ref": "input"
+          }
+        },
+        {
+          "id": "route",
+          "type": "EXAMPLE.JSON.TEXT.ROUTE",
+          "dependsOn": [
+            "prepare"
+          ],
+          "input": {
+            "$ref": "nodes.prepare"
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.route"
+      }
+    },
+    "normalize": {
+      "nodes": [
+        {
+          "id": "text",
+          "type": "EXAMPLE.JSON.TEXT.NORMALIZE",
+          "input": {
+            "$ref": "input"
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.text"
+      }
+    },
+    "count": {
+      "nodes": [
+        {
+          "id": "counted",
+          "type": "INTERACTION.ACT.TOOL",
+          "input": {
+            "call": {
+              "id": {
+                "$ref": "input.callId"
+              },
+              "name": "count_characters",
+              "arguments": {
+                "text": {
+                  "$ref": "input.text"
+                }
+              }
+            }
+          },
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        },
+        {
+          "id": "observed",
+          "type": "INTERACTION.OBSERVE",
+          "dependsOn": [
+            "counted"
+          ],
+          "input": {
+            "result": {
+              "$ref": "nodes.counted"
+            }
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.observed.structuredContent.characters"
+      }
+    },
+    "echo": {
+      "nodes": [
+        {
+          "id": "text",
+          "kind": "subgraph",
+          "graph": "normalize",
+          "input": {
+            "text": {
+              "$ref": "input.text"
+            },
+            "mode": "echo"
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.text.text"
+      }
+    }
+  },
+  "loop": {
+    "entry": "route",
+    "maxIterations": 4,
+    "state": {
+      "text": "",
+      "round": 0,
+      "results": []
+    },
+    "steps": {
+      "route": {
+        "graph": "main",
+        "input": {
+          "$ref": "input"
+        },
+        "assign": {
+          "text": {
+            "$ref": "result.text"
+          }
+        },
+        "transitions": [
+          {
+            "when": {
+              "$op": "eq",
+              "args": [
+                {
+                  "$ref": "result.mode"
+                },
+                "count"
+              ]
+            },
+            "next": "count"
+          },
+          {
+            "next": "echo"
+          }
+        ]
+      },
+      "count": {
+        "graph": "count",
+        "input": {
+          "text": {
+            "$ref": "state.text"
+          },
+          "callId": {
+            "$ref": "input.callId"
+          }
+        },
+        "assign": {
+          "round": {
+            "$op": "add",
+            "args": [
+              {
+                "$ref": "state.round"
+              },
+              1
+            ]
+          },
+          "results": {
+            "$op": "append",
+            "args": [
+              {
+                "$ref": "state.results"
+              },
+              {
+                "$ref": "result"
+              }
+            ]
+          }
+        },
+        "transitions": [
+          {
+            "when": {
+              "$op": "gte",
+              "args": [
+                {
+                  "$ref": "state.round"
+                },
+                {
+                  "$ref": "config.repetitions"
+                }
+              ]
+            },
+            "end": "completed"
+          },
+          {
+            "next": "count"
+          }
+        ]
+      },
+      "echo": {
+        "graph": "echo",
+        "input": {
+          "text": {
+            "$ref": "state.text"
+          }
+        },
+        "assign": {
+          "results": {
+            "$op": "append",
+            "args": [
+              {
+                "$ref": "state.results"
+              },
+              {
+                "$ref": "result"
+              }
+            ]
+          }
+        },
+        "transitions": [
+          {
+            "end": "completed"
+          }
+        ]
+      }
+    },
+    "output": {
+      "$ref": "state.results"
+    }
+  },
+  "deployment": {
+    "workers": [
+      {
+        "id": "text",
+        "use": "text"
+      },
+      {
+        "id": "interaction",
+        "use": "interaction",
+        "services": "count-only"
+      }
+    ],
+    "bindings": {
+      "main": {
+        "prepare/text": "text",
+        "route": "text"
+      },
+      "count": {
+        "counted": "interaction",
+        "observed": "interaction"
+      }
+    }
+  }
+}

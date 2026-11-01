@@ -1,5 +1,7 @@
 # Ditto 开发者指南
 
+**从 [agent.json 构建 Agent](../agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+
 Ditto 将 Agent 的一次操作定义为 **Node**，将实现、连接和计算资源放入 **Worker**，使用 **Graph** 声明步骤依赖，再用 **Loop** 控制阶段、分支、循环和恢复。应用可以替换模型、工具、数据库或部署位置，保留相同的 Graph。
 
 本指南面向使用 npm 包的开发者。所有框架调用来自 `@codesoul-co/ditto` 的公开入口；可选检索能力来自独立的 `@codesoul-co/ditto-retrieval`。示例中的业务控制器、第三方 SDK 和数据库适配器属于应用。
@@ -8,7 +10,7 @@ Ditto 将 Agent 的一次操作定义为 **Node**，将实现、连接和计算�
 
 | 你要完成的事情 | 阅读顺序 | 完成后获得 |
 | --- | --- | --- |
-| 第一次运行 | [安装](../package-guide.zh-CN.md) → [项目结构](agent.md) | 一个可执行 Graph，以及带 Redis/SQLite 的完整会话 Agent |
+| 第一次运行 | [agent.json](../agent-json.zh-CN.md) → [深入接线](agent.md) | 一个可执行 Graph，以及带 Redis/SQLite 的完整会话 Agent |
 | 给已有模型接工具 | [模型](models.md) → [Tool](tools.md) → [Graph/Loop](graph-loop.md) | 模型提出动作、工具执行、观察、再判断的闭环 |
 | 接入外部 MCP | [MCP](mcp.md) → [INTERACTION](../worker-api/interaction.zh-CN.md) | 实际建立连接、发现工具、调用和关闭客户端 |
 | 使用技能与工作上下文 | [Skill](skills.md) → [CONTEXT](../worker-api/context.zh-CN.md) | 可信技能目录、加载权限、上下文选择与预算 |
@@ -18,9 +20,9 @@ Ditto 将 Agent 的一次操作定义为 **Node**，将实现、连接和计算�
 
 ## 建议的阅读路线
 
-1. **先运行**：安装主包，完成无外部依赖的 Context Graph；确认 Node 版本、ESM 和导入方式正确。
+1. **先运行**：安装主包，用 agent.json 完成无外部依赖的 Context Graph；确认 Node 版本、ESM 和导入方式正确。
 2. **再连接资源**：配置模型、Redis、文件 SQLite；从真实请求执行到答案文件，不停留在模型返回文本。
-3. **理解编排**：一个阶段使用一个 Graph，跨阶段和子计划由一次 Loop 调度；明确失败、超时和预算。
+3. **理解编排**：一个阶段使用一个 Graph，JSON Subgraph 编译时展开，跨阶段由一次 Loop 调度；明确失败、超时和预算。
 4. **逐个深入 Worker**：学习其节点、输入输出、默认行为、可替换服务和错误处理。只安装当前需要的适配器。
 5. **扩展应用**：将第三方 SDK 包装为 Provider/Tool/Store；只有出现新语义操作时才新增 Node。
 

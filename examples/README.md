@@ -1,5 +1,7 @@
 # Ditto examples
 
+**Start with [agent.json](json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 [Handbook examples](handbook/README.md): custom Workers, Skills, database ranking and real MCP.
 
 [简体中文](README.zh-CN.md) · [Project](../README.md) · [API reference](../docs/worker-api/README.md)
@@ -10,6 +12,7 @@ This catalog organizes Agent topics into control flow, capabilities and executio
 
 | Directory | Contents |
 | --- | --- |
+| [json-agent](json-agent/README.md) | Standard agent.json entry: single Graph, main router, Subgraphs, Loop and persistent conversation |
 | [package-basics](package-basics/README.md) | npm installation, Context, tools, optional retrieval and a persistent conversation Agent |
 | [control-flow](control-flow/README.md) | 7 categories: sequencing, routing, parallelism, iteration, recovery, human intervention and lifecycle |
 | [capabilities](capabilities/README.md) | 12 categories of reusable Agent capabilities |

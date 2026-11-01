@@ -1,5 +1,7 @@
 # npm package basics
 
+**Start with [agent.json](../json-agent/README.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 [简体中文](README.zh-CN.md) · [Complete package guide](../../docs/package-guide.md) · [Examples](../README.md)
 
 These examples run from the repository or from an independent npm consumer. Framework imports use only public `@codesoul-co/ditto` and optional `@codesoul-co/ditto-retrieval` entries. Importing an example does not execute its task.

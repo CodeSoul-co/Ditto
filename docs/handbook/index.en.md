@@ -1,5 +1,7 @@
 # Ditto developer handbook
 
+**Start with [agent.json](../agent-json.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 Ditto defines an Agent operation as a **Node**, puts implementations and resources in a **Worker**, declares dependencies in a **Graph**, and uses a **Loop** to control stages, branches, repetition and recovery. Applications can replace models, tools, databases and deployment locations while keeping the same Graph.
 
 This handbook is for npm consumers. Framework calls use public exports from `@codesoul-co/ditto`; optional retrieval comes from `@codesoul-co/ditto-retrieval`. Business controllers, third-party SDKs and database adapters in the examples belong to the application.

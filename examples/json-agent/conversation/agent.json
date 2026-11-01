@@ -1,0 +1,450 @@
+{
+  "version": 1,
+  "id": "conversation-json",
+  "config": {
+    "system": "Answer accurately and concisely. Use the supplied conversation history.",
+    "maxTokens": 512
+  },
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "history",
+          "kind": "subgraph",
+          "graph": "history",
+          "input": {
+            "$ref": "input"
+          }
+        },
+        {
+          "id": "route",
+          "type": "EXAMPLE.JSON.CONVERSATION.PREPARE",
+          "input": {
+            "request": {
+              "$ref": "input"
+            },
+            "memories": {
+              "$ref": "nodes.history"
+            }
+          },
+          "dependsOn": [
+            "history"
+          ]
+        }
+      ],
+      "output": {
+        "$ref": "nodes.route"
+      }
+    },
+    "history": {
+      "nodes": [
+        {
+          "id": "read",
+          "type": "MEMORY.GET",
+          "input": {
+            "keys": [
+              {
+                "$ref": "input.memoryKey"
+              }
+            ]
+          },
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.read.output"
+      }
+    },
+    "context": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "scope": {
+              "$ref": "input.request.scope"
+            },
+            "sources": {
+              "$op": "concat",
+              "args": [
+                [
+                  {
+                    "role": "system",
+                    "content": {
+                      "$ref": "config.system"
+                    }
+                  }
+                ],
+                {
+                  "$ref": "input.prepared.sources"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "input": {
+            "scope": {
+              "$ref": "input.request.scope"
+            },
+            "purpose": "infer"
+          },
+          "dependsOn": [
+            "loaded"
+          ]
+        }
+      ],
+      "output": {
+        "$ref": "nodes.selected.context.items"
+      }
+    },
+    "answer": {
+      "nodes": [
+        {
+          "id": "context",
+          "kind": "subgraph",
+          "graph": "context",
+          "input": {
+            "$ref": "input"
+          }
+        },
+        {
+          "id": "sample",
+          "type": "INFER.REASONING.SAMPLE",
+          "input": {
+            "model": {
+              "$ref": "input.request.model"
+            },
+            "messages": {
+              "$map": {
+                "items": {
+                  "$ref": "nodes.context"
+                },
+                "value": {
+                  "role": {
+                    "$ref": "item.metadata.role"
+                  },
+                  "content": {
+                    "$ref": "item.content"
+                  }
+                }
+              }
+            },
+            "generation": {
+              "maxTokens": {
+                "$ref": "config.maxTokens"
+              }
+            }
+          },
+          "dependsOn": [
+            "context"
+          ],
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        },
+        {
+          "id": "finalized",
+          "type": "EXAMPLE.JSON.CONVERSATION.FINALIZE",
+          "input": {
+            "request": {
+              "$ref": "input.request"
+            },
+            "history": {
+              "$ref": "input.prepared.history"
+            },
+            "message": {
+              "$ref": "nodes.sample.output.message"
+            }
+          },
+          "dependsOn": [
+            "sample"
+          ]
+        },
+        {
+          "id": "updated",
+          "type": "CONTEXT.UPDATE",
+          "input": {
+            "scope": {
+              "$ref": "input.request.scope"
+            },
+            "add": [
+              {
+                "id": "assistant-answer",
+                "content": {
+                  "$ref": "nodes.finalized.answer"
+                },
+                "metadata": {
+                  "role": "assistant"
+                }
+              }
+            ]
+          },
+          "dependsOn": [
+            "finalized"
+          ]
+        }
+      ],
+      "output": {
+        "$ref": "nodes.finalized"
+      }
+    },
+    "write": {
+      "nodes": [
+        {
+          "id": "saved",
+          "type": "MEMORY.WRITE",
+          "input": {
+            "memories": [
+              {
+                "key": {
+                  "$ref": "input.request.memoryKey"
+                },
+                "content": {
+                  "$ref": "input.content"
+                }
+              }
+            ]
+          },
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        }
+      ]
+    },
+    "update": {
+      "nodes": [
+        {
+          "id": "saved",
+          "type": "MEMORY.UPDATE",
+          "input": {
+            "memories": [
+              {
+                "id": {
+                  "$ref": "input.id"
+                },
+                "content": {
+                  "$ref": "input.content"
+                }
+              }
+            ]
+          },
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        }
+      ]
+    },
+    "deliver": {
+      "nodes": [
+        {
+          "id": "receipt",
+          "type": "INTERACTION.OUTPUT",
+          "input": {
+            "deliveryId": {
+              "$ref": "input.turn"
+            },
+            "message": {
+              "role": "assistant",
+              "content": {
+                "$ref": "input.answer"
+              }
+            }
+          },
+          "require": {
+            "path": "status",
+            "equals": "accepted"
+          }
+        }
+      ],
+      "output": {
+        "answer": {
+          "$ref": "input.answer"
+        },
+        "replayed": {
+          "$ref": "input.replayed"
+        }
+      }
+    }
+  },
+  "loop": {
+    "entry": "route",
+    "maxIterations": 4,
+    "state": {
+      "prepared": null,
+      "content": null,
+      "answer": null
+    },
+    "steps": {
+      "route": {
+        "graph": "main",
+        "input": {
+          "$ref": "input"
+        },
+        "assign": {
+          "prepared": {
+            "$ref": "result"
+          },
+          "answer": {
+            "$ref": "result.answer"
+          }
+        },
+        "transitions": [
+          {
+            "when": {
+              "$ref": "result.replayed"
+            },
+            "next": "deliver"
+          },
+          {
+            "next": "answer"
+          }
+        ]
+      },
+      "answer": {
+        "graph": "answer",
+        "input": {
+          "request": {
+            "$ref": "input"
+          },
+          "prepared": {
+            "$ref": "state.prepared"
+          }
+        },
+        "assign": {
+          "content": {
+            "$ref": "result"
+          },
+          "answer": {
+            "$ref": "result.answer"
+          }
+        },
+        "transitions": [
+          {
+            "when": {
+              "$op": "eq",
+              "args": [
+                {
+                  "$ref": "state.prepared.existingId"
+                },
+                null
+              ]
+            },
+            "next": "write"
+          },
+          {
+            "next": "update"
+          }
+        ]
+      },
+      "write": {
+        "graph": "write",
+        "input": {
+          "request": {
+            "$ref": "input"
+          },
+          "content": {
+            "$ref": "state.content"
+          }
+        },
+        "transitions": [
+          {
+            "next": "deliver"
+          }
+        ]
+      },
+      "update": {
+        "graph": "update",
+        "input": {
+          "id": {
+            "$ref": "state.prepared.existingId"
+          },
+          "content": {
+            "$ref": "state.content"
+          }
+        },
+        "transitions": [
+          {
+            "next": "deliver"
+          }
+        ]
+      },
+      "deliver": {
+        "graph": "deliver",
+        "input": {
+          "turn": {
+            "$ref": "input.turn"
+          },
+          "answer": {
+            "$ref": "state.answer"
+          },
+          "replayed": {
+            "$ref": "state.prepared.replayed"
+          }
+        },
+        "transitions": [
+          {
+            "end": "completed"
+          }
+        ]
+      }
+    },
+    "output": {
+      "$ref": "result"
+    }
+  },
+  "deployment": {
+    "workers": [
+      {
+        "id": "context",
+        "use": "context"
+      },
+      {
+        "id": "memory",
+        "use": "memory"
+      },
+      {
+        "id": "infer",
+        "use": "infer"
+      },
+      {
+        "id": "interaction",
+        "use": "interaction"
+      },
+      {
+        "id": "conversation",
+        "use": "conversation"
+      }
+    ],
+    "bindings": {
+      "main": {
+        "history/read": "memory",
+        "route": "conversation"
+      },
+      "answer": {
+        "context/loaded": "context",
+        "context/selected": "context",
+        "sample": "infer",
+        "finalized": "conversation",
+        "updated": "context"
+      },
+      "write": {
+        "saved": "memory"
+      },
+      "update": {
+        "saved": "memory"
+      },
+      "deliver": {
+        "receipt": "interaction"
+      }
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "id": "third-party-agent",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "normalized",
+          "type": "EXAMPLE.NPM.TEXT.NORMALIZE",
+          "input": {
+            "$ref": "input"
+          }
+        },
+        {
+          "id": "formatted",
+          "type": "EXAMPLE.NPM.TEXT.FORMAT",
+          "input": {
+            "$ref": "nodes.normalized"
+          },
+          "dependsOn": [
+            "normalized"
+          ]
+        },
+        {
+          "id": "saved",
+          "type": "MEMORY.WRITE",
+          "input": {
+            "memories": [
+              {
+                "key": {
+                  "$ref": "input.memoryKey"
+                },
+                "content": {
+                  "answer": {
+                    "$ref": "nodes.formatted.text"
+                  }
+                }
+              }
+            ]
+          },
+          "dependsOn": [
+            "formatted"
+          ],
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        },
+        {
+          "id": "read",
+          "type": "MEMORY.GET",
+          "input": {
+            "keys": [
+              {
+                "$ref": "input.memoryKey"
+              }
+            ]
+          },
+          "dependsOn": [
+            "saved"
+          ],
+          "require": {
+            "path": "status",
+            "equals": "success"
+          }
+        },
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "scope": {
+              "$ref": "input.scope"
+            },
+            "sources": [
+              {
+                "role": "assistant",
+                "content": {
+                  "$ref": "nodes.read.output.0.content.answer"
+                }
+              }
+            ]
+          },
+          "dependsOn": [
+            "read"
+          ]
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "input": {
+            "scope": {
+              "$ref": "input.scope"
+            },
+            "purpose": "infer"
+          },
+          "dependsOn": [
+            "loaded"
+          ]
+        },
+        {
+          "id": "delivered",
+          "type": "INTERACTION.OUTPUT",
+          "input": {
+            "deliveryId": {
+              "$ref": "input.deliveryId"
+            },
+            "message": {
+              "role": "assistant",
+              "content": {
+                "$ref": "nodes.selected.context.items.0.content"
+              }
+            }
+          },
+          "dependsOn": [
+            "selected"
+          ],
+          "require": {
+            "path": "status",
+            "equals": "accepted"
+          }
+        }
+      ],
+      "output": {
+        "answer": {
+          "$ref": "nodes.read.output.0.content.answer"
+        },
+        "receipt": {
+          "$ref": "nodes.delivered"
+        }
+      }
+    }
+  },
+  "deployment": {
+    "workers": [
+      {
+        "id": "context",
+        "use": "context"
+      },
+      {
+        "id": "memory",
+        "use": "memory"
+      },
+      {
+        "id": "interaction",
+        "use": "interaction",
+        "services": "count-only"
+      },
+      {
+        "id": "text",
+        "use": "text"
+      }
+    ],
+    "bindings": {
+      "main": {
+        "normalized": "text",
+        "formatted": "text",
+        "saved": "memory",
+        "read": "memory",
+        "loaded": "context",
+        "selected": "context",
+        "delivered": "interaction"
+      }
+    }
+  }
+}

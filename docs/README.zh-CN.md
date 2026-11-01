@@ -1,5 +1,7 @@
 # 文档地图
 
+**从 [agent.json 构建 Agent](agent-json.zh-CN.md) 开始：main Graph、Subgraph、Loop、Worker 注册绑定。** 本页其余内容为更详细的能力与代码式搭建教程。
+
 [开发者搭建手册](handbook/index.md)：从项目结构、Graph/Loop 到 Tool、MCP、Skill、数据库算法与 Worker 扩展。
 
 [English](README.md) · **简体中文**
@@ -10,6 +12,7 @@
 
 | 文档 | English | 简体中文 | 内容 |
 | --- | --- | --- | --- |
+| JSON Agent | [Read](agent-json.md) | [阅读](agent-json.zh-CN.md) | agent.json、main、Subgraph、Loop、Worker 注册绑定与权限边界 |
 | npm 包基础使用 | [Read](package-guide.md) | [阅读](package-guide.zh-CN.md) | 从空目录安装、公开 API、真实模型、Redis/Memory、完整示例与包外验收 |
 | 项目概览 | [Read](../README.md) | [阅读](../README.zh-CN.md) | 项目目标、能力与环境准备 |
 | 架构 | [Read](architecture.md) | [阅读](architecture.zh-CN.md) | Worker 归属、内部 Node、Graph/Loop 执行、扩容与模块边界 |

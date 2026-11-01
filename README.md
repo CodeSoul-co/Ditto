@@ -15,11 +15,11 @@
 
 > The definition is [Node System and API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.md). It contains the final Node tree, semantic boundaries, fixed shared types, and every public Node input/output contract.
 
-[Developer handbook](docs/handbook/index.md)
+**[JSON Agent configuration](docs/agent-json.md)** · [Developer handbook](docs/handbook/index.md)
 
 ## Install and use
 
-Requires Node.js 24+ and npm 11+.
+Requires Node.js 24+ and npm 11+. The JSON Agent API and template below require `@codesoul-co/ditto@0.1.3` or later.
 
 ```sh
 npm init -y
@@ -27,26 +27,65 @@ npm pkg set type=module
 npm install @codesoul-co/ditto
 ```
 
-Save this as `app.mjs` and run `node app.mjs`:
+Start with the standard root template [agent_example.json](agent_example.json). It includes main, a Subgraph, a Loop and Worker registration/bindings; edit ordinary parameters in `config`. After npm installation, copy it:
 
-```js
-import { createDitto, createContextWorker, graph } from "@codesoul-co/ditto";
-
-const runtime = createDitto({ workers: [createContextWorker()] });
-const plan = graph("hello")
-  .node("loaded", "CONTEXT.LOAD", [], text => ({
-    sources: [{ role: "user", content: text }],
-  }))
-  .node("selected", "CONTEXT.SELECT", ["loaded"], (_input, { loaded }) => ({
-    context: loaded, purpose: "infer", limit: 1,
-  }));
-try {
-  const result = await runtime.run(plan, "Hello Ditto");
-  console.log(result.selected.context.items[0].content);
-} finally { await runtime.close(); }
+```sh
+cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
 ```
 
-This first Graph requires no model, Redis or configuration file. For a complete Agent, use real model configuration, Redis Context and database Memory as shown in the [detailed package guide](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.md) ([中文](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)). It covers installation, strict TypeScript, every execution entry, result handling, tools, Loop composition, storage, recovery, output and troubleshooting.
+In the source repository, use `cp agent_example.json agent.json`. The smaller single-Graph, multi-node version below (LOAD → SELECT) can also be saved as `agent.json`. Both configurations use the host code below.
+
+```json
+{
+  "version": 1,
+  "id": "hello",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": ["loaded"],
+          "input": {
+            "context": { "$ref": "nodes.loaded" },
+            "purpose": "infer",
+            "limit": 1
+          }
+        }
+      ],
+      "output": { "$ref": "nodes.selected.context.items.0.content" }
+    }
+  },
+  "deployment": {
+    "workers": [{ "id": "context", "use": "context" }],
+    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+  }
+}
+```
+
+Save the host as `app.mjs`, then run `node app.mjs`:
+
+```js
+import { readFile } from "node:fs/promises";
+import { createAgent } from "@codesoul-co/ditto/runtime";
+import { createContextWorker } from "@codesoul-co/ditto/worker/context";
+
+const definition = JSON.parse(await readFile("agent.json", "utf8"));
+const agent = await createAgent(definition, {
+  workers: { context: createContextWorker() },
+});
+try { console.log(await agent.run("Hello Ditto")); }
+finally { await agent.close(); }
+```
+
+This first Graph requires no model, Redis or credentials. For a complete Agent, use real model configuration, Redis Context and database Memory as shown in the [detailed package guide](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.md) ([中文](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)). It covers installation, strict TypeScript, every execution entry, result handling, tools, Loop composition, storage, recovery, output and troubleshooting.
 
 The [four runnable beginner examples](https://github.com/erwinmsmith/Ditto/tree/main/examples/package-basics) demonstrate Context, tools, optional retrieval and a persistent multi-turn Agent. The guide includes exact commands to copy application adapters into an independent npm project; example business functions are not package exports.
 
@@ -57,6 +96,8 @@ npm install @codesoul-co/ditto-retrieval
 ```
 
 Import its Worker from `@codesoul-co/ditto-retrieval`. Runtime and built-in Worker entries such as `@codesoul-co/ditto/runtime` and `@codesoul-co/ditto/worker/memory` belong to the main package. Do not import private `src` or `dist` paths.
+
+The standard construction path is JSON: `agent.json` owns the required `main`, optional Subgraphs, outer Loop, Worker registration references and bindings. The host supplies implementations, credentials and permissions. See the [JSON guide](docs/agent-json.md) and [JSON examples](examples/json-agent/README.md). Code-based composition and provider wiring below are advanced integration paths.
 
 ## Architecture
 

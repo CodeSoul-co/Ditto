@@ -121,7 +121,7 @@ try {
   assert.ok(
     packed.files.every(
       (f: { path: string }) =>
-        ["package.json", "README.md", "README.zh-CN.md"].includes(f.path) ||
+        ["package.json", "README.md", "README.zh-CN.md", "agent_example.json"].includes(f.path) ||
         f.path.startsWith("dist/"),
     ),
     "Unexpected source or secret in tarball",

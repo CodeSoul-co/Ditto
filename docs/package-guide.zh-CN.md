@@ -1,5 +1,7 @@
 # npm 包基础使用指南
 
+**标准入口：[agent.json 配置与运行](agent-json.zh-CN.md)。** 本页补充 npm 安装、类型检查、资源接线和代码式编排的详细说明。
+
 [English](package-guide.md) · [API 参考](worker-api/README.zh-CN.md) · [可运行入门示例](../examples/package-basics/README.zh-CN.md)
 
 本指南从空目录安装开始，说明如何配置 Worker、执行 Graph、用 Loop 组合多个阶段、连接真实模型与存储，以及将仓库中的完整场景接入自己的应用。示例只使用 npm 公开入口。
@@ -27,30 +29,64 @@ npm install @codesoul-co/ditto-retrieval
 
 使用 Node.js 24+、npm 11+。包使用 ESM，提供 JavaScript 与 TypeScript 声明；不提供 CommonJS `require()` 构建。Runtime 面向 Node，不是浏览器 SDK。只使用 JavaScript 时不必安装 TypeScript。
 
-## 2. 五分钟内完成第一次调用
+## 2. 使用 agent.json 完成第一次调用
 
-创建 `app.mjs`：
+推荐从仓库根目录的标准模板 [agent_example.json](../agent_example.json) 开始。模板包含 main、Subgraph、Loop 和 Worker 注册绑定，普通参数在 `config` 中调整。安装 npm 包后复制：
+
+```sh
+cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
+```
+
+在源码仓库中则执行 `cp agent_example.json agent.json`。下面是更小的单图多节点版本（LOAD → SELECT），也可保存为 `agent.json`，两种配置共用下方宿主代码。
+
+```json
+{
+  "version": 1,
+  "id": "hello",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": ["loaded"],
+          "input": {
+            "context": { "$ref": "nodes.loaded" },
+            "purpose": "infer",
+            "limit": 1
+          }
+        }
+      ],
+      "output": { "$ref": "nodes.selected.context.items.0.content" }
+    }
+  },
+  "deployment": {
+    "workers": [{ "id": "context", "use": "context" }],
+    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+  }
+}
+```
+
+宿主入口 `app.mjs`：
 
 ```js
-import { createDitto, createContextWorker, graph } from "@codesoul-co/ditto";
+import { readFile } from "node:fs/promises";
+import { createAgent } from "@codesoul-co/ditto/runtime";
+import { createContextWorker } from "@codesoul-co/ditto/worker/context";
 
-const runtime = createDitto({ workers: [createContextWorker()] });
-const plan = graph("first-context")
-  .node("loaded", "CONTEXT.LOAD", [], text => ({
-    sources: [{ role: "user", content: text }],
-  }))
-  .node("selected", "CONTEXT.SELECT", ["loaded"], (_input, { loaded }) => ({
-    context: loaded,
-    purpose: "infer",
-    limit: 1,
-  }));
-
-try {
-  const result = await runtime.run(plan, "Hello Ditto");
-  console.log(result.selected.context.items[0].content);
-} finally {
-  await runtime.close();
-}
+const definition = JSON.parse(await readFile("agent.json", "utf8"));
+const agent = await createAgent(definition, {
+  workers: { context: createContextWorker() },
+});
+try { console.log(await agent.run("Hello Ditto")); }
+finally { await agent.close(); }
 ```
 
 ```sh
@@ -58,7 +94,7 @@ node app.mjs
 # Hello Ditto
 ```
 
-这段程序执行真实的 CONTEXT.LOAD → CONTEXT.SELECT。`loaded`、`selected` 是图中节点的本地 ID；第二步通过依赖声明得到第一步输出。它是无外部服务的 API 入门，不是带持久化记忆的完整 Agent。
+这段程序由 JSON 编译并执行真实的 CONTEXT.LOAD → CONTEXT.SELECT，投影输出第一条内容。它是无外部服务的 API 入门，不是带持久化记忆的完整 Agent。
 
 `createDitto()` 不会自动注册所有 Worker，也不会隐式读取当前目录下的 YAML 或 `.env`。第一次调用不需要这些文件。
 
@@ -224,7 +260,7 @@ Context 是短期工作集，示例使用真实 Redis、TTL 和 scope。Memory �
 ```text
 MEMORY.GET → 检查最近一轮是否已完成
   ├─ 已完成：重新输出已保存答案
-  └─ 新请求：CONTEXT.LOAD → SELECT → INFER.SAMPLE → CONTEXT.UPDATE
+  └─ 新请求：CONTEXT.LOAD → INFER.SAMPLE → CONTEXT.UPDATE
              → MEMORY.WRITE 或 UPDATE → INTERACTION.OUTPUT → 答案文件
 ```
 

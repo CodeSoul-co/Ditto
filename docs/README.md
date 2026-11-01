@@ -1,5 +1,7 @@
 # Documentation Map
 
+**Start with [agent.json](agent-json.md): main Graph, Subgraphs, Loop and Worker registration/bindings.** The remaining material covers capabilities and advanced code-based integration.
+
 [Developer handbook](handbook/index.md) (中文): project structure, Graph/Loop, tools, MCP, skills, database algorithms and Worker extensions.
 
 **English** · [简体中文](README.zh-CN.md)
@@ -10,6 +12,7 @@ Start with the architecture and development guides, then follow the references f
 
 | Document | English | 简体中文 | Contents |
 | --- | --- | --- | --- |
+| JSON Agent | [Read](agent-json.md) | [阅读](agent-json.zh-CN.md) | agent.json、main、Subgraph、Loop、Worker 注册绑定与权限边界 |
 | npm package guide | [Read](package-guide.md) | [阅读](package-guide.zh-CN.md) | Installation, public API, real model, Redis/Memory, complete examples and consumer verification |
 | Project overview | [Read](../README.md) | [阅读](../README.zh-CN.md) | Project goals, capabilities, and setup |
 | Architecture | [Read](architecture.md) | [阅读](architecture.zh-CN.md) | Worker ownership, internal Nodes, Graph/Loop execution, scaling, and module boundaries |

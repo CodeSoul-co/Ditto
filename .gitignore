@@ -13,6 +13,7 @@ agents.md
 .env
 .env.*
 !.env.example
+/agent.json
 /docs/architecture-review-2026-09-09.md
 /docs/refactor-2026-09-10.md
 

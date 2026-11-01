@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "id": "agent-example",
+  "config": {
+    "selectionLimit": 1,
+    "repetitions": 1
+  },
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "prepare",
+          "kind": "subgraph",
+          "graph": "load-context",
+          "input": {
+            "$ref": "input"
+          }
+        },
+        {
+          "id": "selected",
+          "type": "CONTEXT.SELECT",
+          "dependsOn": [
+            "prepare"
+          ],
+          "input": {
+            "context": {
+              "$ref": "nodes.prepare"
+            },
+            "purpose": "infer",
+            "limit": {
+              "$ref": "config.selectionLimit"
+            }
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.selected.context.items.0.content"
+      }
+    },
+    "load-context": {
+      "nodes": [
+        {
+          "id": "loaded",
+          "type": "CONTEXT.LOAD",
+          "input": {
+            "sources": [
+              {
+                "role": "user",
+                "content": {
+                  "$ref": "input"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "output": {
+        "$ref": "nodes.loaded"
+      }
+    }
+  },
+  "loop": {
+    "entry": "prepare",
+    "maxIterations": 8,
+    "state": {
+      "round": 0,
+      "result": null
+    },
+    "steps": {
+      "prepare": {
+        "graph": "main",
+        "input": {
+          "$ref": "input"
+        },
+        "assign": {
+          "round": {
+            "$op": "add",
+            "args": [
+              {
+                "$ref": "state.round"
+              },
+              1
+            ]
+          },
+          "result": {
+            "$ref": "result"
+          }
+        },
+        "transitions": [
+          {
+            "when": {
+              "$op": "gte",
+              "args": [
+                {
+                  "$ref": "state.round"
+                },
+                {
+                  "$ref": "config.repetitions"
+                }
+              ]
+            },
+            "end": "completed"
+          },
+          {
+            "next": "prepare"
+          }
+        ]
+      }
+    },
+    "output": {
+      "$ref": "state.result"
+    }
+  },
+  "deployment": {
+    "workers": [
+      {
+        "id": "context",
+        "use": "context"
+      }
+    ],
+    "bindings": {
+      "main": {
+        "prepare/loaded": "context",
+        "selected": "context"
+      },
+      "load-context": {
+        "loaded": "context"
+      }
+    }
+  }
+}
