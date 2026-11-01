@@ -17,8 +17,6 @@
 
 **[Build a complete Agent from scratch](docs/agent-from-zero.md)** · [Configuration reference](docs/agent-json.md) · [Developer handbook](docs/handbook/index.md)
 
-**Configuration:** Agent creation automatically reads `ditto.yaml` from the working directory; an explicit Runtime `config` takes precedence. Precedence is per parameter: the Agent's Loop budget overrides Runtime defaults, and per-run concurrency overrides YAML. `agent.json.config` holds separate application data and is not merged with YAML. See the configuration table below for the full order.
-
 ## Install and use
 
 Requires Node.js 24+ and npm 11+. The configuration-based Agent API and template below require `@codesoul-co/ditto@0.1.4` or later.
