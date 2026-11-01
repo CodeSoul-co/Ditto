@@ -96,7 +96,7 @@ node app.mjs
 
 这段程序由 JSON 编译并执行真实的 CONTEXT.LOAD → CONTEXT.SELECT，投影输出第一条内容。它是无外部服务的 API 入门，不是带持久化记忆的完整 Agent。
 
-`createDitto()` 不会自动注册所有 Worker，也不会隐式读取当前目录下的 YAML 或 `.env`。第一次调用不需要这些文件。
+`createDitto()` 未传入 `config` 时自动读取当前工作目录的 `ditto.yaml` 和 `process.env`；默认文件缺失时使用内置默认值，`.env` 仍需单独加载。Worker 仍需注册。
 
 ## 3. TypeScript 的运行和类型检查
 
@@ -224,7 +224,7 @@ const config = loadRuntimeConfig(process.env, {
 });
 ```
 
-启动时使用 `node --env-file=.env app.ts`。`loadRuntimeConfig` 解析传入环境和设置，但不读取 `.env` 文件；已有环境变量优先于 Node 加载的 env 文件。若使用 YAML，改为 `loadRuntimeConfigFile("ditto.yaml", process.env)`，配置文件由应用提供，不从已安装包的内部路径读取。
+启动时使用 `node --env-file=.env app.ts`。`loadRuntimeConfig` 解析传入环境和设置，但不读取 `.env` 文件；已有环境变量优先于 Node 加载的 env 文件。若使用 YAML，将 `ditto.yaml` 放在工作目录并省略 Runtime 的 `config` 参数即可自动加载。显式 `config` 优先；自定义路径仍可调用 `loadRuntimeConfigFile(path)`。
 
 `createInferWorker()` 复用 Runtime 的 Provider 配置。完整 Agent 在 Graph 中调用 `INFER.REASONING.SAMPLE`，并检查返回的 `status`、`output.message.content`；只调用模型不等于完成整个任务。
 

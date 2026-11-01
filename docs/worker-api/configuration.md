@@ -2,14 +2,14 @@
 
 [简体中文](configuration.zh-CN.md) · [Worker API](README.md)
 
-The root [`ditto.yaml`](../../ditto.yaml) contains versioned behavior defaults. [`.env.example`](../../.env.example) is the deployment template; actual `.env` credentials are ignored by Git. Load environment variables with Node `--env-file=.env`, then explicitly load YAML once at application startup. Importing the library or creating an unconfigured Runtime reads neither files nor environment variables.
+The root [`ditto.yaml`](../../ditto.yaml) contains versioned behavior defaults. [`.env.example`](../../.env.example) is the deployment template; actual `.env` credentials are ignored by Git. Load environment variables with Node `--env-file=.env`. `createAgent()` / `createDitto()` automatically read `./ditto.yaml` and `process.env` once at startup; explicit `config` bypasses this. A missing default file uses environment values and built-ins. Importing the library and compiling a definition do not read configuration files.
 
 ```ts
-import { createDitto, createInfer, createInferWorker, loadRuntimeConfigFile } from "@codesoul-co/ditto";
-const config = loadRuntimeConfigFile("ditto.yaml", process.env);
-if (!config.model) throw new Error("Configure the default model in .env");
-const runtime = createDitto({ config, workers: [createInferWorker()] });
+import { createDitto, createInfer, createInferWorker } from "@codesoul-co/ditto";
+const runtime = createDitto({ workers: [createInferWorker()] });
+const config = runtime.services.config;
 try {
+  if (!config.model) throw new Error("Configure the default model in .env");
   const infer = createInfer({ runtime });
   const result = await infer.reasoning.trajectory({
     model: config.model,
@@ -69,7 +69,7 @@ loadRuntimeConfig(env = process.env, settings: RuntimeSettings = {}): RuntimeCon
 
 The file loader reads UTF-8 YAML relative to the current working directory. The second loader takes an object without file access. Both loaders return a normalized immutable snapshot containing environment, workspace, model, providers, timeoutMs, maxTurns, graphConcurrency, loopMaxIterations, infer, context, interaction, memory, retrieval, react, sandbox and sandboxExecution. Workers access it through ctx.services.config and may receive independent services at registration. Reload and recreate the Runtime after editing YAML; there is no per-call file I/O or hot reload.
 
-Missing/empty files, non-object roots, unknown keys, duplicate keys, aliases and invalid values fail at startup. YAML does not interpolate environment variables or accept deployment fields such as apiKey/baseUrl. Provider options are request parameters, never a place for credentials. Custom createDitto({ providers }) skips HTTP provider construction from config.
+Explicit `loadRuntimeConfigFile(path)` calls require the file; only automatic loading permits a missing default file. Empty files, non-object roots, unknown keys, duplicate keys, aliases and invalid values fail at startup. YAML does not interpolate environment variables or accept deployment fields such as apiKey/baseUrl. Provider options are request parameters, never a place for credentials. Custom createDitto({ providers }) skips HTTP provider construction from config.
 
 For embedded use without file or environment reads, the second argument accepts the same RuntimeSettings shape as YAML. Root YAML remains the recommended shared application configuration.
 
@@ -137,7 +137,7 @@ DELIBERATE resolves mode and selectCount from the request, then workers.infer.de
 
 ## CONTEXT
 
-`workers.context` is parsed into `config.context` at startup. Pass it explicitly to SDK/Worker construction; loading config does not connect Redis.
+`workers.context` is parsed into `config.context` at startup. Context Workers automatically inherit `policy`; explicit factory policy fields take precedence. The standalone SDK and resource adapters still take explicit settings. Loading config does not connect Redis.
 
 ```yaml
 workers:

@@ -80,7 +80,7 @@ The root entry does not automatically import the optional RETRIEVAL implementati
 3. Explicitly load behavior settings from root ditto.yaml and environment bindings, create Runtime services and register Workers.
 4. Execute invoke/run/loop, check each result type, and close Runtime plus application-owned SDKs in finally.
 
-`createDitto()` does not read process.env or YAML by default. `loadRuntimeConfigFile("ditto.yaml", process.env)` reads YAML and consumes the supplied environment. Reading .env requires Node --env-file=.env or an application loader. Copy .env.example only when external bindings are needed. See [configuration](worker-api/configuration.md) for grouping and precedence. Pass Worker-specific options to factories explicitly, as with Context policy above.
+`createDitto()` automatically reads `./ditto.yaml` and `process.env` unless an explicit `config` is supplied. A missing default YAML uses built-ins; invalid settings fail. `.env` still requires Node `--env-file=.env` or an application loader. Context Workers inherit Runtime policy automatically; explicit factory fields override it. See [configuration](worker-api/configuration.md) for precedence.
 
 The root also exports `NODE_API_VERSION` (currently `2.0-rc.1`) for contract-version metadata in logs; it does not negotiate transport protocols. `Infer` is a type-only namespace; use createInfer/createInferWorker for runtime factories.
 

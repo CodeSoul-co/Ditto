@@ -8,7 +8,7 @@
 
 ## 1. 安装与运行
 
-使用 Node.js 24+、npm 11+、ESM 和 `@codesoul-co/ditto@0.1.3` 或更高版本：
+使用 Node.js 24+、npm 11+、ESM 和 `@codesoul-co/ditto@0.1.4` 或更高版本：
 
 ```sh
 npm init -y
@@ -22,41 +22,77 @@ npm install @codesoul-co/ditto
 cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
 ```
 
-在源码仓库中则执行 `cp agent_example.json agent.json`。下面是更小的单图多节点版本（LOAD → SELECT），也可保存为 `agent.json`，两种配置共用下方宿主代码。
+在源码仓库中执行 `cp agent_example.json agent.json`。完整配置如下：外层 Loop 执行 main，main 引用 load-context Subgraph，再执行 SELECT；`deployment` 注册并绑定 Worker。
 
 ```json
 {
   "version": 1,
-  "id": "hello",
+  "id": "agent-example",
+  "config": { "selectionLimit": 1, "repetitions": 1 },
   "graphs": {
     "main": {
       "nodes": [
         {
-          "id": "loaded",
-          "type": "CONTEXT.LOAD",
-          "input": {
-            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
-          }
+          "id": "prepare", "kind": "subgraph", "graph": "load-context",
+          "input": { "$ref": "input" }
         },
         {
-          "id": "selected",
-          "type": "CONTEXT.SELECT",
-          "dependsOn": ["loaded"],
+          "id": "selected", "type": "CONTEXT.SELECT", "dependsOn": ["prepare"],
           "input": {
-            "context": { "$ref": "nodes.loaded" },
-            "purpose": "infer",
-            "limit": 1
+            "context": { "$ref": "nodes.prepare" }, "purpose": "infer",
+            "limit": { "$ref": "config.selectionLimit" }
           }
         }
       ],
       "output": { "$ref": "nodes.selected.context.items.0.content" }
+    },
+    "load-context": {
+      "nodes": [{
+        "id": "loaded", "type": "CONTEXT.LOAD",
+        "input": { "sources": [{ "role": "user", "content": { "$ref": "input" } }] }
+      }],
+      "output": { "$ref": "nodes.loaded" }
     }
+  },
+  "loop": {
+    "entry": "prepare", "maxIterations": 8,
+    "state": { "round": 0, "result": null },
+    "steps": {
+      "prepare": {
+        "graph": "main", "input": { "$ref": "input" },
+        "assign": {
+          "round": { "$op": "add", "args": [{ "$ref": "state.round" }, 1] },
+          "result": { "$ref": "result" }
+        },
+        "transitions": [
+          {
+            "when": { "$op": "gte", "args": [{ "$ref": "state.round" }, { "$ref": "config.repetitions" }] },
+            "end": "completed"
+          },
+          { "next": "prepare" }
+        ]
+      }
+    },
+    "output": { "$ref": "state.result" }
   },
   "deployment": {
     "workers": [{ "id": "context", "use": "context" }],
-    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+    "bindings": {
+      "main": { "prepare/loaded": "context", "selected": "context" }
+    }
   }
 }
+```
+
+默认执行一轮；将 `config.repetitions` 改成 `2` 会执行两轮，`loop.maxIterations` 是总执行预算。另存以下运行参数为 `ditto.yaml`：
+
+```yaml
+runtime:
+  graphConcurrency: 4
+workers:
+  context:
+    policy:
+      maxItems: 256
 ```
 
 保存为 `app.mjs`，执行 `node app.mjs`：
@@ -73,6 +109,27 @@ const agent = await createAgent(definition, {
 try { console.log(await agent.run("Hello Ditto")); }
 finally { await agent.close(); }
 ```
+
+| 配置 | 职责 |
+| --- | --- |
+| `agent.json` | main、Subgraph、Node 依赖、Loop 分支/停止条件、业务参数和 Worker 绑定 |
+| `ditto.yaml` | Runtime 与 Worker 的行为默认值，创建 Agent / Runtime 时自动读取 |
+| `.env` | 凭证、地址、模型选择和部署权限；需要时用 `node --env-file=.env app.mjs` 加载 |
+
+创建 `createAgent()` / `createDitto()` 时，默认从当前工作目录（`process.cwd()`）读取 `ditto.yaml`，并结合已有的 `process.env` 生成 Runtime 配置；不需要手动调用加载器，也不会向上搜索目录。默认文件不存在时使用环境变量和内置默认值；格式错误、非法参数或无法读取时直接报错。每个 Runtime 启动时读取一次，不在每次 Node 调用时重读。传入 `config` 会完全跳过自动加载；自定义路径可使用 `config: loadRuntimeConfigFile("path/to/ditto.yaml")`，仅需内置默认值可使用 `config: loadRuntimeConfig({})`。`.env` 文件仍由应用或 `node --env-file=.env` 加载，导入 npm 包和 `compileAgent()` 不读取文件。
+
+优先级按具体参数决定，两个文件不会整体合并：
+
+| 参数 | 生效顺序（左侧优先） |
+| --- | --- |
+| Runtime 配置来源 | 显式 `createAgent(..., { config })` / `createDitto({ config })` → 自动读取 `./ditto.yaml` 与进程环境变量 → 各字段内置默认值 |
+| Loop 执行预算 | `agent.json.loop.maxIterations`；配置 `loop` 时此项必填。YAML 的 `runtime.loopMaxIterations` 只为未指定预算的代码式 Loop 提供默认值；未配置 `loop` 的 Agent 只执行一次 main |
+| Graph 并发 | `agent.run(input, { concurrency })` → YAML `runtime.graphConcurrency` → 内置默认值 `Infinity` |
+| Memory 查询数量 | Node 输入 `limit`（可在 `agent.json` 中指定）→ Worker 工厂 `defaults.queryLimit` → YAML `workers.memory.queryLimit` → 内置默认值 `100` |
+| 业务参数 | `agent.json.config` 仅供 `$ref: "config.…"` 引用，不覆盖 YAML 或宿主 Runtime `config` |
+| Context 策略 | Worker 工厂 `policy` 的显式字段 → YAML `workers.context.policy` → 内置默认值；`createContextWorker()` 自动使用 Runtime 策略 |
+
+环境变量提供凭证、地址、模型选择与部署权限，YAML 提供行为默认值，两者按字段分工，并无通用的“环境变量覆盖 JSON/YAML”规则。其他 Node 参数以各自契约为准；Node 输入不能借由默认值覆盖规则授予工具权限。数据库、工具与服务配置仍由宿主创建并注入。
 
 这是本地 Context API 入门，不是持久化模型 Agent。接下来运行 [main 路由示例](../examples/json-agent/router/agent.json)，以及使用真实模型、Redis Context 和 SQLite Memory 的[完整会话配置](../examples/json-agent/conversation/agent.json)。[全部 JSON 示例运行方法](../examples/json-agent/README.zh-CN.md)。
 
@@ -120,6 +177,8 @@ Graph 包含非空 `nodes` 数组和可选 `output` 表达式。省略 `output` 
 ```
 
 `normalize` 是 `graphs` 中另一张图，拥有自己的输入、节点和投影输出。父图通过 `nodes.prepare` 读取结果。编译器将它展开到同一张 DAG，叶子 ID 如 `prepare/text`。独立节点保留并行能力，父级依赖约束整个子图。重复引用会创建独立叶子 ID 和数据作用域。必须存在 `main`；其他图既可作为 Subgraph 引用，也可由 Loop 调度。
+
+共用的 Node 实现和 Worker 实例只需注册一次。多个 Subgraph 中使用相同的 Node `type`，并绑定到同一个 Worker 实例 ID，即可复用 handler 和资源；Loop 重复执行和同一 Agent 的并发运行也不会重新注册 Worker。展开叶子只是独立的执行位置，每次调用保留各自的输入和结果，不会自动缓存或复用其他调用的结果。共享 Worker 的可变资源需要由其实现保证并发安全。
 
 ## 3. Loop 控制 Graph
 
@@ -203,6 +262,8 @@ const agent = await createAgent(definition, {
 上面是接线片段，工厂、工具和资源由宿主提供。JSON 中的 `{"id":"files","use":"interaction","services":"readOnly"}` 会将 Interaction Worker 注册为 `files`。它不是内置 FileWorker。`read_text` 必须真实实现并注册，通过 Sandbox 文件接口落实工作目录和读取权限。
 
 `deployment.bindings` 是 Graph ID → 展开叶子 ID → Worker 实例 ID，例如 `{"main":{"prepare/text":"custom"}}`。省略绑定时按能力路由。未知引用、不存在的叶子和不兼容能力在执行前报错；注册失败会关闭已注册资源。
+
+Graph ID 指实际调度的入口图：main 调用 Subgraph 时，将展开路径写在 `bindings.main` 下；只有 Loop 直接调度该子图时，才使用它自己的绑定表。例如 `{"main":{"left/text":"custom","right/text":"custom"}}` 将两个子图调用中的节点绑定到同一个 `custom` Worker。子图的独立绑定表不会自动继承到父图。
 
 凭证、数据库客户端和授权上限由宿主管理。只向当前用户开放可选择的 Worker 与资源配置。`requiresApproval`、`effects` 仍然是元数据：可信控制器和执行工具必须在产生效果前核验实际参数对应的审批。Sandbox 为协作式检查，不会拦截自定义 JavaScript 中任意 SDK、fetch 或文件系统调用。[详细工具教程](handbook/tools.md)。
 

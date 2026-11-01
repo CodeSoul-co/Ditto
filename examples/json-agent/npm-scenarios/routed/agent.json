@@ -696,25 +696,6 @@
         "finish/verified": "memory",
         "finish/delivered": "interaction"
       },
-      "research": {
-        "history": "memory",
-        "searched": "retrieval",
-        "loaded": "context",
-        "selected": "context",
-        "decision": "infer"
-      },
-      "act": {
-        "called": "interaction",
-        "observed": "interaction",
-        "updated": "context"
-      },
-      "finish": {
-        "selectedAfter": "context",
-        "answer": "infer",
-        "saved": "memory",
-        "verified": "memory",
-        "delivered": "interaction"
-      },
       "recall": {
         "read": "memory",
         "loaded": "context",

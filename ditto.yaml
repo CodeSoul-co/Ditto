@@ -1,5 +1,9 @@
-# Behavior defaults by owner. Credentials and deployment bindings live in .env.
-# 按配置归属分组；由 loadRuntimeConfigFile() 在启动时读取一次。
+# Behavior defaults; createAgent/createDitto automatically load ./ditto.yaml once.
+# 默认读取当前工作目录；显式传入 config 优先。文件缺失用默认值，非法配置报错。
+# agent.json owns Graph/Loop/Worker bindings; its config is separate business data.
+# agent.json 的 loop.maxIterations 优先；未配置 loop 时 main 只执行一次。
+# run(input, { concurrency }) > runtime.graphConcurrency；Node 默认参数按各 Worker 契约覆盖。
+# 凭证、地址与部署权限在 env 中，与 YAML 按字段分工，不作整体覆盖。
 
 # Runtime / Graph orchestration (ReAct belongs here, not inside INFER).
 runtime:

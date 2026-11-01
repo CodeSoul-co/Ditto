@@ -80,7 +80,7 @@ npm install @codesoul-co/ditto-retrieval
 3. 显式读取根目录 ditto.yaml 的行为参数和环境变量，创建 Runtime services，注册 Worker。
 4. 调用 invoke、run 或 loop；检查对应结果类型，使用 finally 关闭 Runtime 和应用拥有的 SDK。
 
-`createDitto()` 默认不读取 process.env 或 YAML。`loadRuntimeConfigFile("ditto.yaml", process.env)` 读取 YAML 和传入环境；Node `--env-file=.env` 或应用 loader 才负责读取 .env。只在需要外部连接时复制 .env.example 并填写；统一参数与分组见 [configuration](worker-api/configuration.zh-CN.md)。Worker 专项配置需按文档显式传入工厂，示例中的 Context policy 就是如此。
+`createDitto()` 未传入 `config` 时默认读取工作目录的 `ditto.yaml` 和 `process.env`；默认 YAML 缺失时使用内置默认值，非法配置报错。`.env` 仍由 Node `--env-file=.env` 或应用 loader 加载。Context Worker 自动继承 Runtime 策略，工厂显式字段优先。详见[配置参考](worker-api/configuration.zh-CN.md)。
 
 根入口还导出 `NODE_API_VERSION`（当前为 `2.0-rc.1`），可用于日志中的契约版本标识；它不执行协议协商。`Infer` 是仅类型命名空间，运行时工厂仍使用 createInfer/createInferWorker。
 

@@ -36,7 +36,7 @@ CONTEXT 管理当前任务的工作上下文：LOAD 归一化输入，UPDATE 合
 
 显式 `context` 计算快照，`scope` 访问注入 Redis / stateStore，二者互斥。sessionId、turnId、invocationId 一起决定缓存键；每轮改变 turnId 会产生不同工作集。需要共享会话时使用一致的受控 scope；多 Agent 可以把角色纳入 sessionId，但 scope 本身不是认证凭证。
 
-`expectedVersion` 在版本变化或过期时失败，避免旧状态覆盖新状态。更长 Redis TTL 提高缓存可用时间，也延长资料保留；长期任务仍需 Memory。Context policy/services 从构造参数接入，读取 YAML 后需显式传入；请求预算只能收紧 policy 上限。
+`expectedVersion` 在版本变化或过期时失败，避免旧状态覆盖新状态。更长 Redis TTL 提高缓存可用时间，也延长资料保留；长期任务仍需 Memory。Context Worker 自动继承 Runtime YAML 策略，工厂显式策略字段优先，services 仍由应用注入；请求预算只能收紧 policy 上限。
 
 Worker `concurrency` 控制入口调用数；同 scope 写入还受 CAS 和 operationQueue 影响。配置的本地队列按 scope 串行，默认 maxPending=1024；扩大队列容纳更多等待操作，也增加内存和等待时间，不加速单个 scope。共享状态的本地副本应共享适当 store/queue；本地队列不能代替跨进程并发控制。
 
@@ -60,7 +60,7 @@ RAG 检索出 20 条资料，SELECT `limit:8,maxTokens:3000` 最多保留 8 条�
 | servicesFactory | 仅 Worker；每个本地副本创建一次 services，优先于 services |
 | concurrency | 仅 Worker；正整数，默认不限制顶层调用并发 |
 
-根目录 YAML 的 `workers.context.policy` 放上述策略，`workers.context.cache` 放 ttlMs、keyPrefix；加载结果为 `config.context`，创建 SDK/Worker 时显式传入。Redis 地址和凭据由应用从 `.env` 的 `DITTO_WORKER_CONTEXT_REDIS_URL` 读取并交给 SDK；Ditto 的配置加载器不建立 Redis 连接，也不隐式读取 `.env`。客户端连接与关闭归应用负责，Runtime.close() 不关闭注入的 Redis。
+根目录 YAML 的 `workers.context.policy` 放上述策略，`workers.context.cache` 放 ttlMs、keyPrefix；加载结果为 `config.context`，Worker 自动继承 policy，工厂显式策略字段优先；独立 SDK 和 Redis 适配器仍需显式传参。Redis 地址和凭据由应用从 `.env` 的 `DITTO_WORKER_CONTEXT_REDIS_URL` 读取并交给 SDK；Ditto 的配置加载器不建立 Redis 连接，也不隐式读取 `.env`。客户端连接与关闭归应用负责，Runtime.close() 不关闭注入的 Redis。
 
 ## 数据格式与四个节点
 

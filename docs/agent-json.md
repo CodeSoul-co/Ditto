@@ -8,7 +8,7 @@ The hierarchy stays **Loop → Graph/Subgraph → Node → Worker**. A Subgraph 
 
 ## 1. Install and run
 
-Use Node.js 24+, npm 11+, ESM and `@codesoul-co/ditto@0.1.3` or later:
+Use Node.js 24+, npm 11+, ESM and `@codesoul-co/ditto@0.1.4` or later:
 
 ```sh
 npm init -y
@@ -22,41 +22,77 @@ Start with the standard root template [agent_example.json](../agent_example.json
 cp node_modules/@codesoul-co/ditto/agent_example.json agent.json
 ```
 
-In the source repository, use `cp agent_example.json agent.json`. The smaller single-Graph, multi-node version below (LOAD → SELECT) can also be saved as `agent.json`. Both configurations use the host code below.
+In the source repository, use `cp agent_example.json agent.json`. The complete configuration follows: an outer Loop runs main, main invokes the load-context Subgraph and then SELECT, and deployment registers and binds the Worker.
 
 ```json
 {
   "version": 1,
-  "id": "hello",
+  "id": "agent-example",
+  "config": { "selectionLimit": 1, "repetitions": 1 },
   "graphs": {
     "main": {
       "nodes": [
         {
-          "id": "loaded",
-          "type": "CONTEXT.LOAD",
-          "input": {
-            "sources": [{ "role": "user", "content": { "$ref": "input" } }]
-          }
+          "id": "prepare", "kind": "subgraph", "graph": "load-context",
+          "input": { "$ref": "input" }
         },
         {
-          "id": "selected",
-          "type": "CONTEXT.SELECT",
-          "dependsOn": ["loaded"],
+          "id": "selected", "type": "CONTEXT.SELECT", "dependsOn": ["prepare"],
           "input": {
-            "context": { "$ref": "nodes.loaded" },
-            "purpose": "infer",
-            "limit": 1
+            "context": { "$ref": "nodes.prepare" }, "purpose": "infer",
+            "limit": { "$ref": "config.selectionLimit" }
           }
         }
       ],
       "output": { "$ref": "nodes.selected.context.items.0.content" }
+    },
+    "load-context": {
+      "nodes": [{
+        "id": "loaded", "type": "CONTEXT.LOAD",
+        "input": { "sources": [{ "role": "user", "content": { "$ref": "input" } }] }
+      }],
+      "output": { "$ref": "nodes.loaded" }
     }
+  },
+  "loop": {
+    "entry": "prepare", "maxIterations": 8,
+    "state": { "round": 0, "result": null },
+    "steps": {
+      "prepare": {
+        "graph": "main", "input": { "$ref": "input" },
+        "assign": {
+          "round": { "$op": "add", "args": [{ "$ref": "state.round" }, 1] },
+          "result": { "$ref": "result" }
+        },
+        "transitions": [
+          {
+            "when": { "$op": "gte", "args": [{ "$ref": "state.round" }, { "$ref": "config.repetitions" }] },
+            "end": "completed"
+          },
+          { "next": "prepare" }
+        ]
+      }
+    },
+    "output": { "$ref": "state.result" }
   },
   "deployment": {
     "workers": [{ "id": "context", "use": "context" }],
-    "bindings": { "main": { "loaded": "context", "selected": "context" } }
+    "bindings": {
+      "main": { "prepare/loaded": "context", "selected": "context" }
+    }
   }
 }
+```
+
+The default is one iteration; set `config.repetitions` to `2` for two. `loop.maxIterations` bounds total Graph executions. Save these runtime settings as `ditto.yaml`:
+
+```yaml
+runtime:
+  graphConcurrency: 4
+workers:
+  context:
+    policy:
+      maxItems: 256
 ```
 
 Save as `app.mjs` and run `node app.mjs`:
@@ -73,6 +109,27 @@ const agent = await createAgent(definition, {
 try { console.log(await agent.run("Hello Ditto")); }
 finally { await agent.close(); }
 ```
+
+| Configuration | Responsibility |
+| --- | --- |
+| `agent.json` | main, Subgraphs, Node dependencies, Loop transitions/stopping, application parameters and Worker bindings |
+| `ditto.yaml` | Runtime and Worker behavior defaults, loaded automatically when creating an Agent / Runtime |
+| `.env` | Credentials, endpoints, model selection and deployment permissions; load with `node --env-file=.env app.mjs` when needed |
+
+`createAgent()` / `createDitto()` automatically read `ditto.yaml` from the current working directory (`process.cwd()`) and combine it with the existing `process.env`; no manual loader call or parent-directory search is needed. A missing default file falls back to environment values and built-in defaults; malformed settings and other read errors fail immediately. Each Runtime reads its configuration once at startup, not on every Node call. An explicit `config` completely bypasses automatic loading. Use `config: loadRuntimeConfigFile("path/to/ditto.yaml")` for a custom path or `config: loadRuntimeConfig({})` for built-in defaults only. Load `.env` separately through the application or `node --env-file=.env`; importing the package and calling `compileAgent()` do not read files.
+
+Precedence depends on the parameter; the two files are not merged wholesale:
+
+| Parameter | Effective order (leftmost wins) |
+| --- | --- |
+| Runtime configuration source | Explicit `createAgent(..., { config })` / `createDitto({ config })` → automatic `./ditto.yaml` and process environment → built-in field defaults |
+| Loop budget | `agent.json.loop.maxIterations`, required when `loop` is present. YAML `runtime.loopMaxIterations` only supplies a fallback for code-based Loops without an explicit budget; an Agent without `loop` runs main once |
+| Graph concurrency | `agent.run(input, { concurrency })` → YAML `runtime.graphConcurrency` → built-in `Infinity` |
+| Memory query limit | Node input `limit` (which can be set in `agent.json`) → Worker factory `defaults.queryLimit` → YAML `workers.memory.queryLimit` → built-in `100` |
+| Application parameters | `agent.json.config` is only available through `$ref: "config.…"`; it does not override YAML or the host's Runtime `config` |
+| Context policy | Explicit Worker factory `policy` fields → YAML `workers.context.policy` → built-in defaults; `createContextWorker()` uses Runtime policy automatically |
+
+Environment variables supply credentials, addresses, model selection and deployment permissions; YAML supplies behavior defaults. They own different fields, with no universal “environment overrides JSON/YAML” rule. Other Node parameters follow their respective contracts; default overrides cannot grant tool permissions. The host still creates and injects databases, tools and service profiles.
 
 This is a local Context API introduction, not a persistent model Agent. Continue with the [main-router example](../examples/json-agent/router/agent.json) and the [complete conversation configuration](../examples/json-agent/conversation/agent.json), using real inference, Redis Context and SQLite Memory. [Run all JSON examples](../examples/json-agent/README.md).
 
@@ -120,6 +177,8 @@ For NodeResult-returning operations, add `"require": { "path": "status", "equals
 ```
 
 `normalize` is another entry in `graphs`, with its own inputs, nodes and projected output. The parent reads it as `nodes.prepare`. Subgraphs are expanded into the same DAG with namespaced leaf IDs such as `prepare/text`. Independent leaves retain parallel execution; parent dependencies constrain the entire child. Reusing a Subgraph creates distinct leaf IDs and data scopes. There is always a `main` Graph; any additional Graph may be referenced as a Subgraph or scheduled by Loop.
+
+Register shared Node implementations and Worker instances once. Nodes in multiple Subgraphs can use the same `type` and bind to the same Worker instance ID to reuse handlers and resources. Loop iterations and concurrent runs of the same Agent do not register additional Workers. Expanded leaves describe separate execution positions; each invocation keeps its own inputs and results, without automatically caching or reusing another invocation's results. A shared Worker's implementation must handle concurrent access to its mutable resources.
 
 ## 3. Loop controls Graphs
 
@@ -203,6 +262,8 @@ const agent = await createAgent(definition, {
 This wiring fragment assumes imported factories and host-owned resources. In JSON, `{"id":"files","use":"interaction","services":"readOnly"}` registers that Interaction Worker under `files`. `files` is not a built-in FileWorker. `read_text` must really be implemented and registered, using Sandbox filesystem methods to enforce workspace/read permissions.
 
 `deployment.bindings` maps Graph IDs to expanded leaf IDs to Worker instance IDs. For example: `{"main":{"prepare/text":"custom"}}`. Without a binding, Runtime routes by capability. Unknown references, nonexistent leaves and incompatible Worker capabilities fail before execution. Registration failures close previously registered resources.
+
+The Graph ID identifies the execution entry: when main invokes a Subgraph, put its expanded paths under `bindings.main`. The Subgraph's own binding table applies when Loop schedules that Graph directly. For example, `{"main":{"left/text":"custom","right/text":"custom"}}` binds nodes in two Subgraph calls to the same `custom` Worker. Standalone Subgraph bindings are not inherited by the parent.
 
 Credentials, database clients and permission ceilings stay in the host. Only offer Worker definitions and profiles that this user may select. `requiresApproval` and `effects` remain metadata: a trusted controller and the executing tool must verify approval for the actual arguments before an effect. Sandbox checks are cooperative and do not intercept arbitrary SDK/fetch/filesystem calls inside custom JavaScript. [Detailed tool integration](handbook/tools.md).
 

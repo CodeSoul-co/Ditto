@@ -36,7 +36,7 @@ The default estimator rounds JSON UTF-8 bytes / 4 upward rather than using a mod
 
 Explicit context computes over a snapshot; scope accesses injected Redis/stateStore. They are mutually exclusive. sessionId, turnId and invocationId together identify cached state; changing turnId every turn creates a different working set. Use a consistent controlled scope for shared conversations. Multi-Agent applications may put roles in sessionId, but scopes are not authentication credentials.
 
-expectedVersion fails on version changes or expiry instead of overwriting newer state. Longer Redis TTL improves cache availability while retaining data longer; durable tasks still need Memory. Wire Context policy/services at construction, explicitly passing loaded YAML. Request budgets can only tighten policy ceilings.
+expectedVersion fails on version changes or expiry instead of overwriting newer state. Longer Redis TTL improves cache availability while retaining data longer; durable tasks still need Memory. Context Workers inherit Runtime YAML policy, overridden by explicit factory policy fields; services remain application-owned. Request budgets can only tighten policy ceilings.
 
 Worker concurrency limits entry calls; same-scope writes also depend on CAS and operationQueue. A configured local queue serializes by scope with default maxPending=1024. More capacity admits more waiting work and increases memory/waiting time without accelerating one scope. Local replicas sharing state need appropriate shared store/queue instances; a local queue is not cross-process concurrency control.
 
@@ -60,7 +60,7 @@ Import factories from `@codesoul-co/ditto/worker/context` or the root package; i
 | servicesFactory | Worker only; invoked once per local replica, takes precedence over services |
 | concurrency | Worker only; positive integer, unlimited by default |
 
-Use root YAML `workers.context.policy` for policy and `workers.context.cache` for ttlMs/keyPrefix. The loader exposes `config.context`; pass it explicitly when constructing clients and Workers. The application reads `.env`'s `DITTO_WORKER_CONTEXT_REDIS_URL` to construct its Redis SDK client. Config loading neither opens Redis nor implicitly loads `.env`. The application owns connect/close; Runtime.close() does not close injected Redis clients.
+Use root YAML `workers.context.policy` for policy and `workers.context.cache` for ttlMs/keyPrefix. The loader exposes `config.context`; Workers inherit policy automatically. Pass settings explicitly to standalone SDK clients and Redis adapters. The application reads `.env`'s `DITTO_WORKER_CONTEXT_REDIS_URL` to construct its Redis SDK client. Config loading neither opens Redis nor implicitly loads `.env`. The application owns connect/close; Runtime.close() does not close injected Redis clients.
 
 ## Data and operations
 

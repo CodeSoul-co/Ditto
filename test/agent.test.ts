@@ -29,6 +29,83 @@ test("JSON single main Graph, immutable configuration and host registration", as
   await assert.rejects(agent.run("closed"), /no registered Worker/);
 });
 
+test("explicit null configuration is preserved", async () => {
+  const definition = { ...simple(), config: null, graphs: { main: { nodes: [echoNode("echo", ref("config"))], output: ref("nodes.echo") } } };
+  const agent = await createAgent(definition, { workers: { echo: worker() } });
+  try { assert.equal(await agent.run("input"), null); }
+  finally { await agent.close(); }
+});
+
+for (const [projection, output] of Object.entries({
+  direct: ref("nodes.echo"),
+  mapped: { $map: { items: ref("nodes.echo"), value: ref("item") } },
+})) test(`serial Subgraphs keep linear dependencies and avoid repeated upstream projections (${projection})`, async t => {
+  const count = 256;
+  const definition = { version: 1, id: "chain", graphs: {
+    main: { nodes: Array.from({ length: count }, (_, i) => ({
+      id: `n${i}`, kind: "subgraph", graph: "child", dependsOn: i ? [`n${i - 1}`] : [],
+      input: ref(i ? `nodes.n${i - 1}` : "input"),
+    })), output: ref(`nodes.n${count - 1}`) },
+    child: { nodes: [echoNode()], output },
+  } };
+  const agent = await createAgent(definition, { workers: { echo: worker() } });
+  let clones = 0;
+  const original = structuredClone;
+  const mocked = t.mock.method(globalThis, "structuredClone", (value: unknown) => { clones++; return original(value); });
+  try {
+    assert.equal(agent.compiled.graphs.main!.tasks.reduce((sum, task) => sum + task.dependencies.length, 0), count - 1);
+    assert.deepEqual(await agent.run(["first"]), ["first"]);
+    assert.ok(clones < count * 8, `Unexpected repeated cloning: ${clones}`);
+    assert.deepEqual(await Promise.all([agent.run(["second"]), agent.run(["third"])]), [["second"], ["third"]]);
+  } finally { mocked.mock.restore(); await agent.close(); }
+});
+
+test("default Subgraph outputs are materialized during execution, including input-derived projections", async () => {
+  const source = { version: 1, id: "defaults", graphs: {
+    main: { nodes: [echoNode("seed"), { id: "child", kind: "subgraph", graph: "child", dependsOn: ["seed"], input: ref("nodes.seed") }] },
+    child: { nodes: [echoNode()], output: { input: ref("input"), result: ref("nodes.echo") } },
+  } };
+  const agent = await createAgent(source, { workers: { echo: worker() } });
+  try {
+    const result = await agent.run("value");
+    assert.deepEqual(result, { seed: "value", child: { input: "value", result: "value" } });
+    assert.equal(Object.getOwnPropertyDescriptor(result, "child")?.get, undefined);
+  } finally { await agent.close(); }
+  const invalid = await createAgent({ ...source, graphs: { ...source.graphs,
+    child: { ...source.graphs.child, output: ref("input.missing") },
+  } }, { workers: { echo: worker() } });
+  try { await assert.rejects(invalid.run({}), /missing reference/); }
+  finally { await invalid.close(); }
+});
+
+test("shared Node implementations reuse one Worker across Subgraphs, Loop iterations and concurrent runs", async () => {
+  let created = 0, disposed = 0, calls = 0;
+  const shared = defineWorker({ type: "shared", resources: () => { created++; return undefined; },
+    dispose: () => { disposed++; }, nodes: handlers(async input => { calls++; await delay(1); return input; }),
+  });
+  const source: AgentDefinition = { version: 1, id: "reuse", graphs: {
+    main: { nodes: [
+      { id: "left", kind: "subgraph", graph: "shared", input: { value: ref("input.value"), branch: "left" } },
+      { id: "right", kind: "subgraph", graph: "shared", input: { value: ref("input.value"), branch: "right" } },
+    ] },
+    shared: { nodes: [echoNode()], output: ref("nodes.echo") },
+  }, loop: { entry: "run", maxIterations: 2, state: { round: 0 }, steps: {
+    run: { graph: "main", input: ref("input"), assign: { round: op("add", ref("state.round"), 1) },
+      transitions: [{ when: op("gte", ref("state.round"), 2), end: "completed" }, { next: "run" }],
+    },
+  }, output: ref("result") }, deployment: {
+    workers: [{ id: "shared", use: "shared" }],
+    bindings: { main: { "left/echo": "shared", "right/echo": "shared" } },
+  } };
+  const agent = await createAgent(source, { workers: { shared } });
+  try {
+    const results = await Promise.all([agent.run({ value: "one" }), agent.run({ value: "two" })]);
+    assert.deepEqual(results, ["one", "two"].map(value => ({ left: { value, branch: "left" }, right: { value, branch: "right" } })));
+    assert.equal(created, 1); assert.equal(calls, 8); assert.equal(disposed, 0);
+  } finally { await agent.close(); }
+  assert.equal(disposed, 1);
+});
+
 test("Subgraphs expand with isolated inputs, transitive dependencies, output projections and parallel readiness", async () => {
   let active = 0, maximum = 0;
   const definition = {
@@ -137,6 +214,10 @@ test("invalid definitions fail before any Worker is instantiated", async () => {
   let instantiated = 0;
   const host = defineWorker({ type: "test", resources: () => { instantiated++; return undefined; }, nodes: handlers(async x => x) });
   const cases: [unknown, RegExp][] = [
+    [{ ...simple(), deployment: null }, /expected an object/],
+    [{ ...simple(), deployment: { bindings: null } }, /expected an object/],
+    [{ ...simple(), graphs: { main: { nodes: [{ ...echoNode(), dependsOn: null }] } } }, /must be an array/],
+    [{ ...counter(), loop: { ...counter().loop!, steps: { repeat: { ...counter().loop!.steps.repeat!, assign: null } } } }, /expected an object/],
     [{ ...simple(), graphs: { other: { nodes: [echoNode()] } } }, /main Graph/],
     [{ ...simple(), permissions: { execute: true } }, /unknown field/],
     [{ ...simple(), entry: "other" }, /entry must be main/],
