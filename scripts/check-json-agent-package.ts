@@ -5,11 +5,11 @@ import { access, cp, lstat, mkdtemp, readFile, realpath, rm, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, promisify } from "node:util";
-const { values } = parseArgs({ options: { keep: { type: "boolean" } } });
+const { values } = parseArgs({ options: { keep: { type: "boolean" }, registry: { type: "boolean" } } });
 const root = process.cwd(), exec = promisify(execFile);
 const app = await realpath(await mkdtemp(join(tmpdir(), "ditto-json-npm-")));
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-const report: Record<string, unknown> = { status: "running", consumer: app, published: false, artifacts: [] };
+const report: Record<string, unknown> = { status: "running", consumer: app, published: Boolean(values.registry), artifacts: [] };
 const env = { ...process.env }; delete env.NODE_PATH; delete env.NODE_OPTIONS;
 async function run(command: string, args: string[], cwd = app) {
   try { return (await exec(command, args, { cwd, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 })).stdout; }
@@ -26,7 +26,9 @@ const compilerOptions = { target: "ES2024", module: "NodeNext", moduleResolution
   verbatimModuleSyntax: true, types: ["node"] };
 try {
   await writeFile(join(app, "package.json"), JSON.stringify({ name: "ditto-json-consumer", private: true, type: "module" }));
-  const core = await pack(root), retrieval = await pack(join(root, "packages/retrieval"));
+  const retrievalManifest = JSON.parse(await readFile(join(root, "packages/retrieval/package.json"), "utf8"));
+  const core = values.registry ? `${manifest.name}@${manifest.version}` : await pack(root);
+  const retrieval = values.registry ? `${retrievalManifest.name}@${retrievalManifest.version}` : await pack(join(root, "packages/retrieval"));
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", core, retrieval,
     `typescript@${manifest.devDependencies.typescript}`, `@types/node@${manifest.devDependencies["@types/node"]}`, "redis@6.2.1"]);
   await cp(join(root, "examples/json-agent/npm-scenarios"), join(app, "examples/json-agent/npm-scenarios"), { recursive: true });
@@ -70,7 +72,8 @@ registerHooks({resolve(specifier,context,next){
   assert.equal(await run(process.execPath, ["--input-type=module", "-e", "await import('./examples/json-agent/npm-scenarios/host.ts'); await import('./examples/json-agent/npm-scenarios/cli.mjs'); await import('@ditto-example/text-worker');"]), "");
   await run(process.execPath, ["--input-type=module", "-e", `import assert from 'node:assert/strict'; await assert.rejects(import('@codesoul-co/ditto/src/index.ts')); await assert.rejects(import(${JSON.stringify(join(root, "dist/index.js"))}));`]);
   report.consumerChecks = { strictTypes: true, installedExtensionTypes: true, noSourceAliases: true, importBoundary: true, silentImports: true };
-  console.log(`Installed three tarballs; strict consumer types passed. Running live scenarios in ${app}`);
+  console.log(`Installed ${values.registry ? "published Core/Retrieval and the extension tarball" : "three tarballs"}; strict consumer types passed. Running live scenarios in ${app}`);
+  await cp(join(app, "examples/json-agent/npm-scenarios/single/ditto.example.yaml"), join(app, "ditto.yaml"));
   const output = await run(process.execPath, ["examples/json-agent/npm-scenarios/acceptance.mjs", "task"]);
   console.log(output.trim());
   const results = JSON.parse(await readFile(join(app, "task/results.json"), "utf8"));

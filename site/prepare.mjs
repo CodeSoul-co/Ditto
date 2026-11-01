@@ -111,7 +111,7 @@ hero:
   actions:
     - theme: brand
       text: ${zh ? '开始搭建 Agent' : 'Build your first Agent'}
-      link: ${prefix}/docs/agent-json
+      link: ${prefix}/docs/agent-from-zero
     - theme: alt
       text: Worker API
       link: ${prefix}/docs/worker-api/README
@@ -121,7 +121,7 @@ hero:
 features:
   - title: ${zh ? '从安装到交付' : 'From installation to delivery'}
     details: ${zh ? '项目结构、模型配置、Graph 与 Loop、错误处理与真实答案文件。' : 'Project layout, model configuration, Graphs and Loops, errors and actual answer files.'}
-    link: ${prefix}/docs/agent-json
+    link: ${prefix}/docs/agent-from-zero
   - title: ${zh ? '连接工具与知识' : 'Connect tools and knowledge'}
     details: ${zh ? 'Tool、MCP、Skill、Redis Context、数据库 Memory 与检索算法。' : 'Tools, MCP, skills, Redis Context, database Memory and retrieval algorithms.'}
     link: ${prefix}/docs/handbook/tools
@@ -160,7 +160,7 @@ try {
   const scripts = Object.fromEntries(Object.entries(pkg.scripts).filter(([k]) => k.startsWith('example:')).map(([k,v]) => [k,v.replace(/^npm run build && /,'')]));
   await put(join(temp,'package.json'),JSON.stringify({name:'ditto-consumer-examples',private:true,type:'module',scripts,
     dependencies:{'@codesoul-co/ditto':pkg.version,'@codesoul-co/ditto-retrieval':'0.1.0',redis:'6.2.1'},devDependencies:{typescript:pkg.devDependencies.typescript,'@types/node':pkg.devDependencies['@types/node']}},null,2)+'\n');
-  await put(join(temp,'README.md'),'# Ditto consumer examples\n\nRun `npm install`, copy `agent_example.json` to `agent.json`, then run `node examples/json-agent/quickstart.ts "Hello Ditto" agent.json`. For real-model examples, copy `examples/package-basics/.env.example` to `.env` and configure the provider and Redis. See each example README for optional application dependencies.\n\nThis archive installs published npm packages. Framework build and check:* scripts described in repository documentation belong to the source repository and are not required here. Keep relative paths when copying application adapters.\n');
+  await put(join(temp,'README.md'),'# Ditto consumer examples\n\nRun `npm install`, copy `agent_example.json` to `agent.json`, then run `node examples/json-agent/quickstart.ts "Hello Ditto" agent.json`. For the complete five-Worker JSON Agent and HTTP deployment, follow `docs/agent-from-zero.md` or `docs/agent-from-zero.zh-CN.md`. Copy `examples/package-basics/.env.example` to `.env` and configure the provider and Redis. The single-Graph CLI does not require the optional third-party extension. See each example README for optional application dependencies.\n\nThis archive installs published npm packages. Framework build and check:* scripts described in repository documentation belong to the source repository and are not required here. Keep relative paths when copying application adapters.\n');
   await put(join(temp,'.gitignore'),'.env\nnode_modules/\n.examples-*-tasks/\n*.sqlite*\n');
   execFileSync('zip',['-q','-r',join(out,'public/downloads/ditto-examples.zip'),'.'],{cwd:temp});
 } finally { await rm(temp,{recursive:true,force:true}); }

@@ -2,6 +2,11 @@
 
 [English](README.md) · **简体中文** · [配置文件示例](../README.zh-CN.md)
 
+从空目录安装公开 npm 包、准备五个 Worker 的资源、运行同一 JSON 的本地与 HTTP 模式，见[完整教程](../../../docs/agent-from-zero.zh-CN.md)。`single` 场景不需要第三方扩展；`custom` / `routed` 才需要安装示例扩展。资源工厂 `openScenarioResources()` 支持进程内复用，`remote.mjs` 提供 HTTP 服务端与控制端。
+
+用 `node --env-file=.env scripts/check-json-agent-package.ts --registry --keep` 可针对公开 npm 版本验收；默认命令仍安装本地 tarball。新增验收覆盖无扩展 CLI、真实 HTTP 下的同一 JSON、五 Worker 服务端资源与错误 token。
+
+
 这里验证消费者安装 npm 包后，仅通过公开 API 提供 Worker、工具与资源，由 `agent.json` 定义编排。验收将 Core、Retrieval 和示例第三方扩展分别打成 tarball，在仓库外安装；不发布 registry，不使用源码别名或 npm link。
 
 | 场景 | 配置 | 实际执行 |

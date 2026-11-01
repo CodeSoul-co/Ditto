@@ -15,7 +15,7 @@
 
 > 权威定义见[节点体系与 API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.zh-CN.md)，其中包含最终节点树、语义边界、固定公共类型，以及所有公共 Node 的输入输出契约。
 
-**[通过配置文件构建 Agent](docs/agent-json.zh-CN.md)** · [开发者搭建手册](docs/handbook/index.md)
+**[从零搭建完整 Agent](docs/agent-from-zero.zh-CN.md)** · [配置协议](docs/agent-json.zh-CN.md) · [开发者搭建手册](docs/handbook/index.md)
 
 **配置约定：** 创建 Agent 时默认读取当前工作目录的 `ditto.yaml`，显式传入的 Runtime `config` 优先。优先级按参数决定：Agent 的 Loop 预算优先于 Runtime 默认值，调用时的并发参数优先于 YAML；`agent.json.config` 是独立业务参数，不与 YAML 合并。完整顺序见下方配置表。
 
@@ -143,6 +143,47 @@ finally { await agent.close(); }
 | Context 策略 | Worker 工厂 `policy` 的显式字段 → YAML `workers.context.policy` → 内置默认值；`createContextWorker()` 自动使用 Runtime 策略 |
 
 环境变量提供凭证、地址、模型选择与部署权限，YAML 提供行为默认值，两者按字段分工，并无通用的“环境变量覆盖 JSON/YAML”规则。其他 Node 参数以各自契约为准；Node 输入不能借由默认值覆盖规则授予工具权限。数据库、工具与服务配置仍由宿主创建并注入。
+
+### 从零运行完整 Agent：资源、JSON 与部署
+
+完整路线见[从零运行完整 Agent，再部署远端 Worker](docs/agent-from-zero.zh-CN.md)。下面使用五个 Worker、真实模型、Redis、SQLite 和工具执行；示例主图有 13 个节点，编排完全在 `agent.json` 中。
+
+| Worker | 资源在哪里接入 |
+| --- | --- |
+| Context | 应用连接 Redis，传给 `createContextWorker({ redis: { client } })` |
+| Memory | 应用提供 SQLite / 其他数据库的 `MemoryStore`，传给 `createMemoryWorker({ store })` |
+| Infer | `.env` 提供模型地址、Key、模型名与网络许可；Runtime 创建 HTTP Provider |
+| Interaction | 宿主注册工具实现与 OutputSink，并提供允许调用的工具权限配置 |
+| Retrieval | 安装独立检索包，注入文件 / 向量库等检索 Provider |
+
+从空目录下载应用示例并安装已发布 npm 包：
+
+```sh
+mkdir my-ditto-agent
+cd my-ditto-agent
+curl -fL https://codesoul-co.github.io/Ditto/downloads/ditto-examples.zip -o examples.zip
+unzip -q examples.zip
+npm install
+cp examples/package-basics/.env.example .env
+cp examples/json-agent/npm-scenarios/single/ditto.example.yaml ditto.yaml
+cp examples/json-agent/npm-scenarios/single/agent.json agent.json
+cp examples/json-agent/npm-scenarios/single/input.example.json input.json
+mkdir -p task
+cp examples/json-agent/npm-scenarios/single/guide.example.json task/guide.json
+```
+
+填写 `.env` 中的真实模型凭证、网络 origin 与 Redis URL，并启动 Redis。SQLite 文件由应用自动创建；这条五 Worker 路线不需要第三方扩展。随后运行：
+
+```sh
+node --env-file=.env examples/json-agent/npm-scenarios/cli.mjs agent.json input.json task
+cat task/answers/demo-1.md
+```
+
+预期输出 `3`，同时产生真实工具调用、Redis Context、`task/memory.sqlite` 和答案文件。每个新任务使用新的业务 ID。[host.ts](examples/json-agent/npm-scenarios/host.ts) 的 `openScenarioResources()` 负责一次性打开资源和构建 Worker，CLI 负责读取 JSON，再调用 `createAgent()` / `agent.run()`；资源适配器是应用源码，不是 npm Core 的内置数据库连接。
+
+接入长期服务时，启动阶段创建资源和 Agent，请求阶段复用 `agent.run(input)`；停服时先排空 Agent，再关闭 Redis/数据库。JSON 通过 `deployment.workers[].use` 选择宿主实现，通过 `bindings` 选择实例；它不会创建工具实现或自行授予权限。
+
+**跨机部署沿用同一份 JSON。** [remote.mjs](examples/json-agent/npm-scenarios/remote.mjs) 提供可运行的 HTTP 服务端/控制端：服务端创建资源并注册五个 Worker；控制端使用 `compileAgent()`、`createHttpTransport()` 和 `registerRemote()`，再执行编译后的计划。Graph/Loop 留在控制端，Node 调用跨 HTTP(S)，数据库和模型 Key 留在执行端。同机多进程另有 IPC。token、TLS、地址清单、停止流程和通信限制见[完整部署步骤](docs/agent-from-zero.zh-CN.md#6-同一-json-迁移到-http-worker)；`agent.json` 目前不负责自动部署或发现远端服务。
 
 第一张 Graph 不需要模型、Redis 或凭证。完整 Agent 使用真实模型、Redis Context 和数据库 Memory，详见[非常详细的 npm 包使用教程](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)：从空项目安装、TypeScript、API 返回值、工具注册、Loop 组合，到持久化、跨进程恢复、产物输出和故障排查。
 

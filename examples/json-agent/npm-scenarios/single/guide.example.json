@@ -1,0 +1,7 @@
+[
+  {
+    "id": "unicode",
+    "content": "Unicode code points differ from UTF-16 length; count with the tool, not string.length.",
+    "source": { "ref": "guide.json#unicode" }
+  }
+]
