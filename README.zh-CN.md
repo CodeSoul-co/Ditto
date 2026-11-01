@@ -17,8 +17,6 @@
 
 **[从零搭建完整 Agent](docs/agent-from-zero.zh-CN.md)** · [配置协议](docs/agent-json.zh-CN.md) · [开发者搭建手册](docs/handbook/index.md)
 
-**配置约定：** 创建 Agent 时默认读取当前工作目录的 `ditto.yaml`，显式传入的 Runtime `config` 优先。优先级按参数决定：Agent 的 Loop 预算优先于 Runtime 默认值，调用时的并发参数优先于 YAML；`agent.json.config` 是独立业务参数，不与 YAML 合并。完整顺序见下方配置表。
-
 ## 安装与使用
 
 要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.4` 或更高版本。
