@@ -2,7 +2,7 @@
 
 [简体中文](agent-from-zero.zh-CN.md) · [Configuration reference](agent-json.md)
 
-This walkthrough uses published `@codesoul-co/ditto@0.1.4` and `@codesoul-co/ditto-retrieval@0.1.0`. First run a JSON-defined Agent with five Workers in one process, then move its Node calls to HTTP without changing its Graph or Loop. A real model, tool, Redis and file SQLite participate in execution. The example business code belongs to your application, not to hidden Core exports.
+This walkthrough uses published `@codesoul-co/ditto@0.1.5` and `@codesoul-co/ditto-retrieval@0.1.0`. First run a JSON-defined Agent with five Workers in one process, then move its Node calls to HTTP without changing its Graph or Loop. A real model, tool, Redis and file SQLite participate in execution. The example business code belongs to your application, not to hidden Core exports.
 
 ## 1. Create an independent npm project
 
@@ -196,3 +196,6 @@ node --env-file=.env scripts/check-json-agent-package.ts --registry --keep
 ```
 
 This installs public npm packages outside the repository and verifies local five-Worker tool execution, the CLI without an extension, unchanged JSON over real HTTP including incorrect tokens, third-party Workers, Subgraph routing, cross-process recovery from SQLite after Redis expiry, budgets, permissions and storage failures. HTTP verification uses two local processes and a real socket; it does not verify your production TLS, cross-machine network or PostgreSQL/MySQL deployment.
+
+
+After loading the configuration, see [execution and recovery](agent-execution.md) for standalone Graphs, durable resume, message boundaries and canvas editor tooling.

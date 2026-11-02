@@ -11,8 +11,11 @@ import type { JsonValue, NodeType } from "../contracts/index.js";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkerDefinition } from "../worker/define-worker.js";
 import { ExecutionGraph } from "./graph.js";
-import { graphStep, type GraphPlan, type LoopPlanDefinition } from "./graph-plan.js";
-import { createDitto, type DittoOptions, type DittoRuntime, type LoopRunOptions, type WorkerRegistrationOptions } from "./runtime.js";
+import type { LoopPlanDefinition } from "./graph-plan.js";
+import { createDitto, type DittoOptions, type DittoRuntime, type RunOptions, type WorkerRegistrationOptions } from "./runtime.js";
+import { AgentValidationError, pointer, type AgentDiagnostic, type AgentNodeSource } from "./agent-diagnostics.js";
+import { stateDigest } from "./checkpoint.js";
+import { agentPlan, executeAgent, type AgentProgram, type AgentRunOptions } from "./agent-execution.js";
 import { boolean, expression, fail, fields, lookup, name, pathParts, positive, record, snapshot, type Expression } from "./agent-expression.js";
 
 /** JSON expressions: literals, {$ref, default?}, {$op, args}, {$map:{items,value}}, {$literal}. */
@@ -57,6 +60,7 @@ export interface AgentLoop {
   readonly output?: AgentExpression;
 }
 export interface AgentDefinition {
+  readonly $schema?: string;
   readonly version: 1;
   readonly id: string;
   readonly graphs: Readonly<Record<string, AgentGraph>>;
@@ -85,14 +89,16 @@ export interface CreateAgentOptions extends Omit<DittoOptions, "workers"> {
 export interface CompiledAgent {
   readonly definition: AgentDefinition;
   readonly graphs: Readonly<Record<string, ExecutionGraph<unknown, Record<string, unknown>>>>;
+  readonly sourceMap: Readonly<Record<string, Readonly<Record<string, AgentNodeSource>>>>;
   readonly plan: LoopPlanDefinition<unknown, unknown>;
+  runGraph(name: string, runtime: DittoRuntime, input: unknown, options?: RunOptions): Promise<unknown>;
   /** Preflight every graph and binding before starting any work. Runtime remains host-owned. */
-  run(runtime: DittoRuntime, input: unknown, options?: LoopRunOptions): Promise<unknown>;
+  run(runtime: DittoRuntime, input: unknown, options?: AgentRunOptions): Promise<unknown>;
 }
 export interface ConfiguredAgent {
   readonly compiled: CompiledAgent;
   readonly runtime: DittoRuntime;
-  run(input: unknown, options?: Omit<LoopRunOptions, "workers">): Promise<unknown>;
+  run(input: unknown, options?: Omit<AgentRunOptions, "workers">): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -104,7 +110,7 @@ interface FlatNode {
   validate?: (output: unknown) => void;
 }
 interface ParsedNode {
-  id: string; type?: string; child?: string; dependencies: readonly string[]; input: Expression;
+  path: string; id: string; type?: string; child?: string; dependencies: readonly string[]; input: Expression;
   validate?: (output: unknown) => void;
 }
 interface ParsedGraph { nodes: readonly ParsedNode[]; output: Expression; outputReferences: ReadonlySet<string> }
@@ -125,10 +131,34 @@ function lazyScope(entries: readonly (readonly [string, () => unknown])[]): Reco
 
 /** Compile JSON into the existing DAG scheduler and one outer Loop, without eval or SDK calls. */
 export function compileAgent(source: unknown): CompiledAgent {
-  const json = snapshot(source), root = record(json, "definition");
-  fields(root, ["version", "id", "graphs", "entry", "loop", "config", "deployment"], "definition");
-  if (root.version !== 1) fail("version", "expected 1");
-  const id = name(root.id, "id");
+  try { return compileDefinition(source); }
+  catch (error) {
+    if (error instanceof AgentValidationError) {
+      const match = /^\/graphs\/([^/]+)\/nodes\/(\d+)(?:\/|$)/.exec(error.diagnostic.path);
+      if (match) {
+        const nodeId = lookup(source, ["graphs", match[1]!.replace(/~1/g, "/").replace(/~0/g, "~"), "nodes", match[2]!, "id"]);
+        if (typeof nodeId === "string") Object.assign(error.diagnostic, { nodeId });
+      }
+    }
+    throw error;
+  }
+}
+
+/** Pure compiler validation; returns the first actionable error. Worker preflight happens at execution. */
+export function validateAgent(source: unknown): readonly AgentDiagnostic[] {
+  try { compileAgent(source); return []; }
+  catch (error) {
+    if (error instanceof AgentValidationError) return [error.diagnostic];
+    throw error;
+  }
+}
+
+function compileDefinition(source: unknown): CompiledAgent {
+  const json = snapshot(source), root = record(json, "");
+  fields(root, ["$schema", "version", "id", "graphs", "entry", "loop", "config", "deployment"], "");
+  if (root.$schema !== undefined && typeof root.$schema !== "string") fail("/$schema", "expected a string");
+  if (root.version !== 1) fail("/version", "expected 1");
+  const id = name(root.id, "/id");
   const config = root.config === undefined ? {} : root.config;
   const expr = (value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[], references?: Set<string>): Expression => {
     const evaluate = expression(value, [...roots, "config"], where, dependencies, references);
@@ -136,44 +166,46 @@ export function compileAgent(source: unknown): CompiledAgent {
     return scope => evaluate(Object.assign(scope, { config }));
   };
   const deployment = parseDeployment(root.deployment === undefined ? {} : root.deployment);
-  if (root.entry !== undefined && (root.entry !== "main" || root.loop !== undefined)) fail(id, "entry must be main and cannot accompany loop");
-  const definitions = record(root.graphs, "graphs");
-  if (!Object.hasOwn(definitions, "main")) fail("graphs", "a main Graph is required");
+  if (root.entry !== undefined && (root.entry !== "main" || root.loop !== undefined)) fail("/entry", "entry must be main and cannot accompany loop");
+  const definitions = record(root.graphs, "/graphs");
+  if (!Object.hasOwn(definitions, "main")) fail("/graphs", "a main Graph is required");
   const parsed = new Map<string, ParsedGraph>();
   for (const [graphId, raw] of Object.entries(definitions)) {
-    name(graphId, "graph ID");
-    const body = record(raw, graphId);
-    fields(body, ["nodes", "output"], graphId);
-    if (!Array.isArray(body.nodes) || !body.nodes.length) fail(graphId, "nodes must be a nonempty array");
+    const graphPath = pointer("/graphs", graphId);
+    name(graphId, graphPath);
+    const body = record(raw, graphPath);
+    fields(body, ["nodes", "output"], graphPath);
+    if (!Array.isArray(body.nodes) || !body.nodes.length) fail(`${graphPath}/nodes`, "nodes must be a nonempty array");
     const nodes = new Map<string, ParsedNode>();
-    for (const rawNode of body.nodes) {
-      const node = record(rawNode, graphId), nodeId = name(node.id, `${graphId}.node.id`), where = `${graphId}/${nodeId}`;
+    for (const [index, rawNode] of body.nodes.entries()) {
+      const where = `${graphPath}/nodes/${index}`;
+      const node = record(rawNode, where), nodeId = name(node.id, `${where}/id`);
       fields(node, ["id", "kind", "type", "graph", "dependsOn", "input", "require"], where);
-      if (nodes.has(nodeId)) fail(where, "duplicate node ID");
+      if (nodes.has(nodeId)) fail(`${where}/id`, "duplicate node ID", "DUPLICATE_NODE");
       if (node.kind !== undefined && node.kind !== "node" && node.kind !== "subgraph") fail(where, "invalid kind");
       const dependencies = node.dependsOn === undefined ? [] : node.dependsOn;
-      if (!Array.isArray(dependencies)) fail(where, "dependsOn must be an array");
-      const deps = dependencies.map(d => name(d, where));
-      if (new Set(deps).size !== deps.length) fail(where, "duplicate dependency");
-      if (!Object.hasOwn(node, "input")) fail(where, "input is required");
-      const input = expr(node.input, ["input", "nodes"], `${where}.input`, deps);
+      if (!Array.isArray(dependencies)) fail(`${where}/dependsOn`, "dependsOn must be an array");
+      const deps = dependencies.map((d, i) => name(d, `${where}/dependsOn/${i}`));
+      if (new Set(deps).size !== deps.length) fail(`${where}/dependsOn`, "duplicate dependency");
+      if (!Object.hasOwn(node, "input")) fail(`${where}/input`, "input is required");
+      const input = expr(node.input, ["input", "nodes"], `${where}/input`, deps);
       if (node.kind === "subgraph") {
         if (node.type !== undefined || node.require !== undefined) fail(where, "subgraphs accept graph, not type or require");
-        const child = name(node.graph, where);
-        if (!Object.hasOwn(definitions, child)) fail(where, `unknown subgraph ${child}`);
-        nodes.set(nodeId, { id: nodeId, child, dependencies: deps, input });
+        const child = name(node.graph, `${where}/graph`);
+        if (!Object.hasOwn(definitions, child)) fail(`${where}/graph`, `unknown subgraph ${child}`, "UNKNOWN_GRAPH");
+        nodes.set(nodeId, { path: where, id: nodeId, child, dependencies: deps, input });
       } else {
         if (node.graph !== undefined || typeof node.type !== "string" || !/^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+$/.test(node.type))
-          fail(where, "expected a qualified Node type");
+          fail(`${where}/type`, "expected a qualified Node type");
         let validate: ((output: unknown) => void) | undefined;
         if (node.require !== undefined) {
-          const requirement = record(node.require, where);
-          fields(requirement, ["path", "equals"], where);
-          if (!Object.hasOwn(requirement, "equals")) fail(where, "require.equals is required");
-          const path = pathParts(requirement.path, where);
-          validate = output => { if (!isDeepStrictEqual(lookup(output, path), requirement.equals)) fail(where, `output requirement failed: ${String(requirement.path)}`); };
+          const requirement = record(node.require, `${where}/require`);
+          fields(requirement, ["path", "equals"], `${where}/require`);
+          if (!Object.hasOwn(requirement, "equals")) fail(`${where}/require/equals`, "require.equals is required");
+          const path = pathParts(requirement.path, `${where}/require/path`);
+          validate = output => { if (!isDeepStrictEqual(lookup(output, path), requirement.equals)) fail(`${where}/require`, `output requirement failed: ${String(requirement.path)}`); };
         }
-        nodes.set(nodeId, { id: nodeId, type: node.type, dependencies: deps, input, ...(validate ? { validate } : {}) });
+        nodes.set(nodeId, { path: where, id: nodeId, type: node.type, dependencies: deps, input, ...(validate ? { validate } : {}) });
       }
     }
     // Accept canvas order; topologically sort once rather than requiring declaration order.
@@ -182,7 +214,7 @@ export function compileAgent(source: unknown): CompiledAgent {
       remaining.set(node.id, node.dependencies.length);
       if (!node.dependencies.length) sorted.push(node);
       for (const dependency of node.dependencies) {
-        if (!nodes.has(dependency)) fail(graphId, `unknown dependency ${dependency}`);
+        if (!nodes.has(dependency)) fail(`${node.path}/dependsOn`, `unknown dependency ${dependency}`, "UNKNOWN_NODE");
         const list = children.get(dependency) ?? [];
         list.push(node.id); children.set(dependency, list);
       }
@@ -192,22 +224,24 @@ export function compileAgent(source: unknown): CompiledAgent {
       remaining.set(child, pending);
       if (!pending) sorted.push(nodes.get(child)!);
     }
-    if (sorted.length !== nodes.size) fail(graphId, "cyclic dependency; use Loop for cycles");
+    if (sorted.length !== nodes.size) fail(`${graphPath}/nodes`, "cyclic dependency; use Loop for cycles", "CYCLIC_GRAPH");
     const hasOutput = Object.hasOwn(body, "output");
     const outputReferences = new Set<string>(hasOutput ? [] : ["nodes"]);
     const output = hasOutput
-      ? expr(body.output, ["input", "nodes"], `${graphId}.output`, [...nodes.keys()], outputReferences)
+      ? expr(body.output, ["input", "nodes"], `${graphPath}/output`, [...nodes.keys()], outputReferences)
       : (scope: Outputs) => ({ ...(scope.nodes as Outputs) });
     parsed.set(graphId, { nodes: sorted, output, outputReferences });
   }
 
   const graphs: Record<string, ExecutionGraph<unknown, Record<string, unknown>>> = {};
+  const sourceMap: Record<string, Readonly<Record<string, AgentNodeSource>>> = {};
   const projections = new Map<string, Resolver>();
   let totalLeaves = 0;
   for (const graphId of parsed.keys()) {
     const flat: FlatNode[] = [];
+    const sources: Record<string, AgentNodeSource> = {};
     function expand(key: string, prefix: string, getInput: Resolver, inherited: readonly string[], stack: readonly string[]): Projection {
-      if (stack.includes(key) || stack.length >= 32) fail(key, "recursive or excessively nested subgraph");
+      if (stack.includes(key) || stack.length >= 32) fail(pointer("/graphs", key), "recursive or excessively nested subgraph", "CYCLIC_GRAPH");
       const body = parsed.get(key)!, logical = new Map<string, Projection>();
       const start = flat.length;
       for (const node of body.nodes) {
@@ -222,7 +256,8 @@ export function compileAgent(source: unknown): CompiledAgent {
         let projected: Projection;
         if (node.child) projected = expand(node.child, `${expandedId}/`, bind, dependencies, [...stack, key]);
         else {
-          if (++totalLeaves > 20_000) fail(graphId, "expanded node limit exceeded");
+          if (++totalLeaves > 20_000) fail(pointer("/graphs", graphId), "expanded node limit exceeded", "LIMIT_EXCEEDED");
+          sources[expandedId] = Object.freeze({ graphId: key, nodeId: node.id, path: node.path, invocationPath: Object.freeze(expandedId.split("/")) });
           flat.push({ id: expandedId, type: node.type as NodeType, dependencies, bind,
             ...(node.validate ? { validate: node.validate } : {}) });
           projected = { leaves: [expandedId], requiresInput: false, resolve: (_input, outputs) => outputs[expandedId] };
@@ -246,124 +281,157 @@ export function compileAgent(source: unknown): CompiledAgent {
       ...(node.validate ? { validateOutput: node.validate } : {}),
     })));
     graphs[graphId] = plan;
+    sourceMap[graphId] = Object.freeze(sources);
     projections.set(graphId, projection.resolve);
   }
-  function* execute(key: string, input: unknown): GraphPlan<unknown> {
-    const outputs = yield* graphStep(graphs[key]!, input);
-    return projections.get(key)!(input, outputs);
-  }
-  let plan: LoopPlanDefinition<unknown, unknown>;
+  validateBindings(graphs, deployment.bindings ?? {});
+  const project = (key: string, input: unknown, outputs: unknown): unknown => projections.get(key)!(input, outputs as Outputs);
+  let program: AgentProgram;
   if (root.loop === undefined) {
-    plan = { id, maxIterations: 1, plan: input => execute("main", input) };
+    program = { entry: "main", maxIterations: 1, initial: () => ({}), done: () => false,
+      graph: step => { if (step !== "main") fail("/entry", "unknown step"); return "main"; },
+      input: (_step, input) => input, assign: (_step, _input, state) => state,
+      next: () => ({ end: "completed" }), output: (_input, frame) => frame.result };
   } else {
-    const loop = record(root.loop, "loop");
-    fields(loop, ["entry", "maxIterations", "state", "while", "steps", "output"], "loop");
-    const entry = name(loop.entry, "loop.entry"), maxIterations = positive(loop.maxIterations, "loop.maxIterations");
-    if (!Object.hasOwn(loop, "state")) fail("loop", "state is required");
-    const initial = expr(loop.state, ["input"], "loop.state");
-    const condition = loop.while === undefined ? undefined : expr(loop.while, ["input", "state"], "loop.while");
-    const definitions = record(loop.steps, "loop.steps");
+    const loop = record(root.loop, "/loop");
+    fields(loop, ["entry", "maxIterations", "state", "while", "steps", "output"], "/loop");
+    const entry = name(loop.entry, "/loop/entry"), maxIterations = positive(loop.maxIterations, "/loop/maxIterations");
+    if (!Object.hasOwn(loop, "state")) fail("/loop", "state is required");
+    const initial = expr(loop.state, ["input"], "/loop/state");
+    const condition = loop.while === undefined ? undefined : expr(loop.while, ["input", "state"], "/loop/while");
+    const definitions = record(loop.steps, "/loop/steps");
     const steps = new Map<string, { graph: string; input: Expression; assign: Expression;
       transitions: { when?: Expression; next?: string; end?: string }[] }>();
     for (const [key, raw] of Object.entries(definitions)) {
-      name(key, "step ID");
-      const step = record(raw, `step ${key}`);
-      fields(step, ["graph", "input", "assign", "transitions"], key);
-      const target = name(step.graph, key);
-      if (!parsed.has(target)) fail(key, `unknown Graph ${target}`);
-      if (!Object.hasOwn(step, "input")) fail(key, "input is required");
-      const input = expr(step.input, ["input", "state"], `${key}.input`);
-      const updates = record(step.assign === undefined ? {} : step.assign, `${key}.assign`);
-      for (const field of Object.keys(updates)) name(field, `${key}.assign`);
-      const assign = expr(updates, ["input", "state", "result"], `${key}.assign`);
-      if (!Array.isArray(step.transitions) || !step.transitions.length) fail(key, "transitions must be nonempty");
+      const where = pointer("/loop/steps", key);
+      name(key, where);
+      const step = record(raw, where);
+      fields(step, ["graph", "input", "assign", "transitions"], where);
+      const target = name(step.graph, `${where}/graph`);
+      if (!parsed.has(target)) fail(`${where}/graph`, `unknown Graph ${target}`, "UNKNOWN_GRAPH");
+      if (!Object.hasOwn(step, "input")) fail(`${where}/input`, "input is required");
+      const input = expr(step.input, ["input", "state"], `${where}/input`);
+      const updates = record(step.assign === undefined ? {} : step.assign, `${where}/assign`);
+      for (const field of Object.keys(updates)) name(field, pointer(`${where}/assign`, field));
+      const assign = expr(updates, ["input", "state", "result"], `${where}/assign`);
+      if (!Array.isArray(step.transitions) || !step.transitions.length) fail(`${where}/transitions`, "transitions must be nonempty");
       const transitions = step.transitions.map((raw, i) => {
-        const t = record(raw, key);
-        fields(t, ["when", "next", "end"], key);
-        if (Object.hasOwn(t, "next") === Object.hasOwn(t, "end")) fail(key, "transition needs exactly one of next and end");
-        if (t.when === undefined && i !== (step.transitions as unknown[]).length - 1) fail(key, "default transition must be last");
-        const when = t.when === undefined ? undefined : expr(t.when, ["input", "state", "result"], `${key}.when`);
+        const transitionPath = `${where}/transitions/${i}`;
+        const t = record(raw, transitionPath);
+        fields(t, ["when", "next", "end"], transitionPath);
+        if (Object.hasOwn(t, "next") === Object.hasOwn(t, "end")) fail(transitionPath, "transition needs exactly one of next and end");
+        if (t.when === undefined && i !== (step.transitions as unknown[]).length - 1) fail(transitionPath, "default transition must be last");
+        const when = t.when === undefined ? undefined : expr(t.when, ["input", "state", "result"], `${transitionPath}/when`);
         if (t.next !== undefined) {
-          const next = name(t.next, key);
-          if (!Object.hasOwn(definitions, next)) fail(key, `unknown next step ${next}`);
+          const next = name(t.next, `${transitionPath}/next`);
+          if (!Object.hasOwn(definitions, next)) fail(`${transitionPath}/next`, `unknown next step ${next}`);
           return { ...(when ? { when } : {}), next };
         }
-        return { ...(when ? { when } : {}), end: name(t.end, key) };
+        return { ...(when ? { when } : {}), end: name(t.end, `${transitionPath}/end`) };
       });
-      if (transitions.at(-1)!.when) fail(key, "last transition must be an unconditional default");
+      if (transitions.at(-1)!.when) fail(`${where}/transitions`, "last transition must be an unconditional default");
       steps.set(key, { graph: target, input, assign, transitions });
     }
-    if (!steps.has(entry)) fail("loop.entry", "unknown step");
-    if (steps.get(entry)!.graph !== "main") fail("loop.entry", "first step must execute the main Graph");
+    if (!steps.has(entry)) fail("/loop/entry", "unknown step");
+    if (steps.get(entry)!.graph !== "main") fail("/loop/entry", "first step must execute the main Graph");
     const output = loop.output === undefined ? (scope: Readonly<Record<string, unknown>>) => scope.state
-      : expr(loop.output, ["input", "state", "result", "termination"], "loop.output");
-    plan = { id, maxIterations, *plan(input) {
-      let state = record(initial({ input }), "loop.state"), current = entry, result: unknown = null;
-      while (true) {
-        if (condition && !boolean(condition({ input, state }), "loop.while"))
-          return output({ input, state, result, termination: { reason: "completed" } });
-        const step = steps.get(current)!;
-        result = yield* execute(step.graph, step.input({ input, state }));
-        state = { ...state, ...record(step.assign({ input, state, result }), `${current}.assign`) };
-        const transition = step.transitions.find(t => !t.when || boolean(t.when({ input, state, result }), `${current}.when`))!;
-        if (transition.end) return output({ input, state, result, termination: { reason: transition.end } });
-        current = transition.next!;
-      }
-    } };
+      : expr(loop.output, ["input", "state", "result", "termination"], "/loop/output");
+    const getStep = (key: string) => {
+      const step = steps.get(key);
+      if (!step) fail("/loop/steps", `unknown step ${key}`);
+      return step;
+    };
+    program = { entry, maxIterations,
+      initial: input => record(initial({ input }), "/loop/state"),
+      done: (input, state) => condition ? !boolean(condition({ input, state }), "/loop/while") : false,
+      graph: key => getStep(key).graph,
+      input: (key, input, state) => getStep(key).input({ input, state }),
+      assign: (key, input, state, result) => ({ ...state, ...record(getStep(key).assign({ input, state, result }), `/loop/steps/${key}/assign`) }),
+      next: (key, input, state, result) => getStep(key).transitions.find(t => !t.when || boolean(t.when({ input, state, result }), `/loop/steps/${key}/transitions`))!,
+      output: (input, frame) => output({ input, state: frame.state, result: frame.result, termination: { reason: frame.termination } }),
+    };
   }
+  const definitionHash = stateDigest(json);
+  const plan: LoopPlanDefinition<unknown, unknown> = { id, maxIterations: program.maxIterations,
+    plan: input => agentPlan(program, graphs, project, input) };
   const compiled: CompiledAgent = Object.freeze({
-    definition: json as unknown as AgentDefinition, graphs: Object.freeze(graphs), plan: Object.freeze(plan),
-    async run(runtime: DittoRuntime, input: unknown, options: LoopRunOptions = {}) {
-      if (options.checkpoint || options.stateCheckpoint) fail(id, "compiled plans do not serialize generator checkpoints");
+    definition: json as unknown as AgentDefinition, graphs: Object.freeze(graphs), sourceMap: Object.freeze(sourceMap), plan: Object.freeze(plan),
+    async runGraph(key: string, runtime: DittoRuntime, input: unknown, options: RunOptions = {}) {
+      if (!Object.hasOwn(graphs, key)) fail("/graphs", `unknown Graph ${key}`);
+      const workers = options.workers ?? deployment.bindings?.[key] ?? {};
+      preflight({ [key]: graphs[key]! }, runtime.workers().map(w => ({ id: w.address.workerId, capabilities: w.capabilities })), { [key]: workers });
+      const checkpoint = options.checkpoint;
+      const outputs = await runtime.run(graphs[key]!, input, { ...options, workers,
+        ...(checkpoint ? { checkpoint: { ...checkpoint, version: stateDigest([definitionHash, workers, checkpoint.version]) } } : {}),
+      });
+      return project(key, input, outputs);
+    },
+    async run(runtime: DittoRuntime, input: unknown, options: AgentRunOptions = {}) {
+      if ("checkpoint" in options) fail("/checkpoint", "use stateCheckpoint for a configured Agent, or runGraph for a Graph checkpoint");
       const workers = options.workers ?? deployment.bindings ?? {};
       preflight(graphs, runtime.workers().map(w => ({ id: w.address.workerId, capabilities: w.capabilities })), workers);
-      return runtime.loop(plan, input, { ...options, workers });
+      const { stateCheckpoint: _checkpoint, onBoundary: _boundary, ...runOptions } = options;
+      const offset = options.stateCheckpoint?.resume?.state.iteration ?? 0;
+      return runtime.loop({ id, maxIterations: program.maxIterations,
+        plan: () => executeAgent(program, graphs, project, stateDigest([definitionHash, workers]), input, options),
+      }, input, { ...runOptions, workers,
+        ...(options.onGraph ? { onGraph: event => options.onGraph!({ ...event, iteration: event.iteration + offset }) } : {}),
+      });
     },
   });
   return compiled;
 }
 
 function parseDeployment(raw: unknown): AgentDeployment {
-  const deployment = record(raw, "deployment");
-  fields(deployment, ["workers", "bindings"], "deployment");
-  const bindings = record(deployment.bindings === undefined ? {} : deployment.bindings, "bindings");
+  const deployment = record(raw, "/deployment");
+  fields(deployment, ["workers", "bindings"], "/deployment");
+  const bindings = record(deployment.bindings === undefined ? {} : deployment.bindings, "/deployment/bindings");
   for (const [key, raw] of Object.entries(bindings)) {
-    name(key, "binding Graph");
-    for (const value of Object.values(record(raw, key))) name(value, "Worker binding");
+    name(key, pointer("/deployment/bindings", key));
+    for (const value of Object.values(record(raw, pointer("/deployment/bindings", key)))) name(value, pointer("/deployment/bindings", key));
   }
   if (deployment.workers !== undefined) {
-    if (!Array.isArray(deployment.workers)) fail("deployment.workers", "expected an array");
+    if (!Array.isArray(deployment.workers)) fail("/deployment/workers", "expected an array");
     const ids = new Set<string>();
-    for (const raw of deployment.workers) {
-      const entry = record(raw, "deployment.workers");
-      fields(entry, ["id", "use", "services"], "deployment.workers");
-      const id = name(entry.id, "Worker id");
-      name(entry.use, "Worker registry key");
-      if (entry.services !== undefined) name(entry.services, "Worker services profile");
-      if (ids.has(id)) fail(id, "duplicate Worker ID");
+    for (const [index, raw] of deployment.workers.entries()) {
+      const where = `/deployment/workers/${index}`;
+      const entry = record(raw, where);
+      fields(entry, ["id", "use", "services"], where);
+      const id = name(entry.id, `${where}/id`);
+      name(entry.use, `${where}/use`);
+      if (entry.services !== undefined) name(entry.services, `${where}/services`);
+      if (ids.has(id)) fail(`${where}/id`, "duplicate Worker ID");
       ids.add(id);
     }
   }
   return deployment as AgentDeployment;
 }
 
+function validateBindings(graphs: CompiledAgent["graphs"], bindings: NonNullable<AgentDeployment["bindings"]>): void {
+  for (const [key, mapping] of Object.entries(bindings)) {
+    const path = pointer("/deployment/bindings", key);
+    if (!Object.hasOwn(graphs, key)) fail(path, `unknown Graph ${key}`, "UNKNOWN_GRAPH");
+    const nodes = new Set(graphs[key]!.tasks.map(t => t.id));
+    for (const nodeId of Object.keys(mapping)) if (!nodes.has(nodeId))
+      fail(pointer(path, nodeId), `unknown node ${key}/${nodeId}`, "UNKNOWN_NODE");
+  }
+}
+
 function preflight(graphs: CompiledAgent["graphs"], workers: readonly { id: string; capabilities: readonly string[] }[], bindings: NonNullable<AgentDeployment["bindings"]>): void {
+  validateBindings(graphs, bindings);
   const providers = new Map<string, Set<string>>();
   for (const worker of workers) for (const node of worker.capabilities) {
     let ids = providers.get(node);
     if (!ids) { ids = new Set(); providers.set(node, ids); }
     ids.add(worker.id);
   }
-  for (const key of Object.keys(bindings)) if (!Object.hasOwn(graphs, key)) fail("bindings", `unknown Graph ${key}`);
   for (const [key, graph] of Object.entries(graphs)) {
     const mapping = bindings[key] ?? {};
-    const nodes = new Set(graph.tasks.map(t => t.id));
-    for (const nodeId of Object.keys(mapping)) if (!nodes.has(nodeId)) fail("bindings", `unknown node ${key}/${nodeId}`);
     for (const task of graph.tasks) {
       const selected = mapping[task.id];
       const available = providers.get(task.node);
       if (!available || (selected !== undefined && !available.has(selected)))
-        fail(`${key}/${task.id}`, `no registered Worker exposes ${task.node}${selected === undefined ? "" : ` at ${selected}`}`);
+        fail(pointer(pointer("/deployment/bindings", key), task.id), `no registered Worker exposes ${task.node}${selected === undefined ? "" : ` at ${selected}`}`, "WORKER_BINDING");
     }
   }
 }
@@ -376,13 +444,13 @@ export async function createAgent(source: unknown, options: CreateAgentOptions):
   const bindings = deployment.bindings ?? {};
   const requested = deployment.workers ?? Object.keys(registry).map(id => ({ id, use: id }));
   const registrations = requested.map(raw => {
-    const entry = record(raw, "deployment.workers");
-    const id = name(entry.id, "Worker id"), use = name(entry.use, "Worker registry key");
-    if (!Object.hasOwn(registry, use)) fail(use, "unknown host Worker definition");
+    const entry = record(raw, "/deployment/workers");
+    const id = name(entry.id, "/deployment/workers"), use = name(entry.use, "/deployment/workers");
+    if (!Object.hasOwn(registry, use)) fail("/deployment/workers", "unknown host Worker definition");
     const registered = registry[use]!;
     const descriptor: AgentWorker = "definition" in registered ? registered : { definition: registered };
-    const profile = entry.services === undefined ? undefined : name(entry.services, "Worker services profile");
-    if (profile && !Object.hasOwn(serviceProfiles, profile)) fail(profile, "unknown host services profile");
+    const profile = entry.services === undefined ? undefined : name(entry.services, "/deployment/workers");
+    if (profile && !Object.hasOwn(serviceProfiles, profile)) fail("/deployment/workers", "unknown host services profile");
     return { id, ...descriptor, ...(profile ? { services: serviceProfiles[profile]! } : {}) };
   });
   const workerBindings = bindings as NonNullable<AgentDeployment["bindings"]>;
@@ -396,7 +464,7 @@ export async function createAgent(source: unknown, options: CreateAgentOptions):
     throw error;
   }
   return Object.freeze({ compiled, runtime,
-    run: (input: unknown, runOptions: Omit<LoopRunOptions, "workers"> = {}) => compiled.run(runtime, input, { ...runOptions, workers: workerBindings }),
+    run: (input: unknown, runOptions: Omit<AgentRunOptions, "workers"> = {}) => compiled.run(runtime, input, { ...runOptions, workers: workerBindings }),
     close: () => runtime.close(),
   });
 }

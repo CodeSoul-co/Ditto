@@ -8,7 +8,7 @@ import type {
 import type { RuntimeClient } from "../worker/execution-context.js";
 import type { ContextSelection } from "../worker/context/contracts.js";
 import type { InteractionMcpInput, InteractionMcpOutput, InteractionToolOutput } from "../worker/interaction/contracts.js";
-import { checkpointState, restoreState, stateDigest, type GraphCheckpointOptions } from "./checkpoint.js";
+import { checkpointState, restoreState, stateDigest, UncertainGraphCheckpointError, type GraphCheckpointOptions } from "./checkpoint.js";
 
 export interface GraphTask {
   readonly id: string;
@@ -95,12 +95,14 @@ export async function runGraph<I, O extends object>(
     ...(t.validateOutput ? [t.validateOutput.toString()] : [])])) : "";
   const inputHash = checkpoint ? stateDigest(input) : "";
   const restored = checkpoint?.resume ? restoreState(checkpoint.resume, `graph:${graph.id}`, checkpoint.version) : undefined;
-  if (restored && (restored.graphHash !== graphHash || restored.inputHash !== inputHash || restored.uncertain.length))
-    throw new Error("Graph checkpoint is incompatible or has uncertain operations");
+  if (restored && (restored.graphHash !== graphHash || restored.inputHash !== inputHash))
+    throw new Error("Graph checkpoint is incompatible");
+  if (restored?.uncertain.length) throw new UncertainGraphCheckpointError(checkpoint!.resume!);
   const outputs: Record<string, unknown> = Object.assign(Object.create(null), restored?.outputs ?? {});
   const known = new Set(graph.tasks.map(t => t.id));
   if (Object.keys(outputs).some(id => !known.has(id)) || graph.tasks.some(t => Object.hasOwn(outputs, t.id) && t.dependencies.some(id => !Object.hasOwn(outputs, id))))
     throw new Error("Graph checkpoint has an invalid completed dependency set");
+  for (const task of graph.tasks) if (Object.hasOwn(outputs, task.id)) task.validateOutput?.(outputs[task.id]);
   // Build adjacency once: O(nodes + edges), with no promise per dependency.
   const remaining = new Map<GraphTask, number>();
   const dependents = new Map<string, GraphTask[]>();
@@ -120,8 +122,8 @@ export async function runGraph<I, O extends object>(
   const runId = randomUUID();
   return new Promise<O>((resolve, reject) => {
     let cursor = 0, active = 0, failed = false;
-    let saving = false, savedBoundary = "";
-    const uncertain: string[] = [];
+    let saving = false, savedBoundary = "", admittedUntil = 0;
+    const uncertain = new Set<string>();
     let failure: unknown;
     const stop = (error: unknown): void => { if (!failed) { failed = true; failure = error; } };
     const pump = (): void => {
@@ -130,17 +132,29 @@ export async function runGraph<I, O extends object>(
       if (checkpoint) {
         // Checkpoint mode runs ready waves; no resource is in flight while save is awaited.
         if (active) return;
-        const boundary = `${Object.keys(outputs).length}:${uncertain.length}`;
+        const boundary = `${Object.keys(outputs).length}:${uncertain.size}`;
         if (boundary !== savedBoundary) {
           saving = true;
           void Promise.resolve().then(() => checkpoint.save(checkpointState(`graph:${graph.id}`, checkpoint.version,
-            { graphHash, inputHash, outputs, uncertain }))).then(() => {
+            { graphHash, inputHash, outputs, uncertain: [...uncertain] }))).then(() => {
               savedBoundary = boundary; saving = false; pump();
             }, reject);
           return;
         }
+        if (!failed && cursor < ready.length && cursor === admittedUntil) {
+          admittedUntil = Math.min(ready.length, cursor + concurrency);
+          for (let i = cursor; i < admittedUntil; i++) uncertain.add(ready[i]!.id);
+          // Durable intent must precede dispatch, including the first wave.
+          saving = true;
+          void Promise.resolve().then(() => checkpoint.save(checkpointState(`graph:${graph.id}`, checkpoint.version,
+            { graphHash, inputHash, outputs, uncertain: [...uncertain] }))).then(() => {
+              savedBoundary = `${Object.keys(outputs).length}:${uncertain.size}`;
+              saving = false; pump();
+            }, reject);
+          return;
+        }
       }
-      while (!failed && active < concurrency && cursor < ready.length) {
+      while (!failed && active < concurrency && cursor < (checkpoint ? admittedUntil : ready.length)) {
         const task = ready[cursor++]!;
         active++;
         void Promise.resolve().then(() => {
@@ -148,16 +162,20 @@ export async function runGraph<I, O extends object>(
           const dependencies = Object.fromEntries(task.dependencies.map(id => [id, outputs[id]]));
           return invoke(task.node, task.bind(input, Object.freeze(dependencies)), {
             graphId: graph.id, runId, nodeId: task.id,
-          }).then(output => { task.validateOutput?.(output); return output; });
+          }).then(output => {
+            if (checkpoint && output === undefined) throw new Error("Checkpoint Node outputs must be JSON; use null instead of undefined");
+            task.validateOutput?.(output); return output;
+          });
         }).then(output => {
           outputs[task.id] = output;
+          uncertain.delete(task.id);
           for (const child of dependents.get(task.id)!) {
             if (Object.hasOwn(outputs, child.id)) continue;
             const count = remaining.get(child)! - 1;
             remaining.set(child, count);
             if (!count) ready.push(child);
           }
-        }, error => { uncertain.push(task.id); stop(error); }).finally(() => { active--; pump(); });
+        }, error => { uncertain.add(task.id); stop(error); }).finally(() => { active--; pump(); });
       }
       // Finish only after every started node settles, including on cancellation.
       if (!active) {

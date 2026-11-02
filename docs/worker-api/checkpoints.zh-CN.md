@@ -30,9 +30,11 @@ const snapshot = store.snapshot(); // 存为 JSON；恢复时使用 new BranchSt
 
 调用 `runtime.run(graph, input, options)` 时，传入 `{ checkpoint: { version, save, resume? } }`。`save` 接收 JSON `GraphCheckpoint`，并在静止边界被等待完成，然后才启动更多 Node。恢复时，已完成的 Node 输出直接从 checkpoint 读取，不再执行。Graph 结构、绑定文本和输入参与哈希；显式的 `version` 还必须标识无法自动检查的配置、闭包捕获值和资源快照。开启 checkpoint 后，Graph 按执行波次推进；普通执行仍使用原有异步调度。
 
-失败后会等待已准入的 Node 结束，并保存 `uncertain` 列表。此类 checkpoint 会被自动恢复机制拒绝，因为外部操作可能已经生效。外部副作用完成但 `save` 尚未成功时发生崩溃，也不构成 exactly-once 执行；应使用幂等键或资源事务。不要在已经变更的外部资源上直接重试旧 checkpoint。
+检查点模式现在会在每波执行开始前，将调用意图保存到 `uncertain`；该波次结束后再确认成功输出。因此，崩溃或完成状态保存失败会留下未确认意图。恢复时抛出 `UncertainGraphCheckpointError`；宿主须核对外部回执，并显式调用 `reconcileGraphCheckpoint` 后再继续。这不构成外部操作 exactly-once，应使用幂等键或资源事务。始终重新读取最新持久检查点，不要在已变化资源上重试旧记录。该意图协议从 `0.1.5` 开始提供，旧检查点不会自动获得此保证。
 
 对显式状态 Loop，向 `runtime.loop` 传入 `{ stateCheckpoint: { id, version, save, resume? } }`。checkpoint 保存每轮结束后的状态和下一轮序号。`version` 应覆盖 Loop 定义与配置。基于生成器的 plan 不支持此选项，因为 JavaScript 生成器不可序列化；内部 Graph 可以使用各自独立的 checkpoint。
+
+配置化 Agent 通过 `agent.run`／`compiled.run` 的 Agent `stateCheckpoint` 保存显式执行阶段及内部 Graph 检查点，无须序列化生成器；可等待的边界支持状态更新与暂停。新 API、版本说明及宿主存储契约见[配置化 Agent 执行与恢复](../agent-execution.zh-CN.md)。
 
 ## 共享计量与准入
 

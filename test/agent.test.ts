@@ -296,7 +296,7 @@ test("large canvas DAGs compile in arbitrary order without recursive dependency 
   assert.equal(compiled.graphs.main!.tasks.at(-1)!.id, "n4999");
 });
 
-test("Loop rejects nonboolean conditions, missing defaults, wrong main entry and checkpoints", async () => {
+test("Loop rejects nonboolean conditions, missing defaults and wrong main entry", async () => {
   const source = counter();
   assert.throws(() => compileAgent({ ...source, loop: { ...source.loop, steps: {
     repeat: { ...source.loop!.steps.repeat, graph: "unused" },
@@ -307,6 +307,5 @@ test("Loop rejects nonboolean conditions, missing defaults, wrong main entry and
   const agent = await createAgent({ ...source, loop: { ...source.loop, while: "yes" } }, { workers: { echo: worker() } });
   try {
     await assert.rejects(agent.run({ limit: 1 }), /condition must return a boolean/);
-    await assert.rejects(agent.run(null, { stateCheckpoint: { id: "test", version: "1", save: async () => {} } }), /do not serialize/);
   } finally { await agent.close(); }
 });

@@ -19,7 +19,7 @@
 
 ## 安装与使用
 
-要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.4` 或更高版本。
+要求 Node.js 24+、npm 11+。包提供 ESM JavaScript 和 TypeScript 声明。下方配置文件构建 API 与模板需要 `@codesoul-co/ditto@0.1.5` 或更高版本。
 
 ```sh
 npm init -y
@@ -182,6 +182,8 @@ cat task/answers/demo-1.md
 接入长期服务时，启动阶段创建资源和 Agent，请求阶段复用 `agent.run(input)`；停服时先排空 Agent，再关闭 Redis/数据库。JSON 通过 `deployment.workers[].use` 选择宿主实现，通过 `bindings` 选择实例；它不会创建工具实现或自行授予权限。
 
 **跨机部署沿用同一份 JSON。** [remote.mjs](examples/json-agent/npm-scenarios/remote.mjs) 提供可运行的 HTTP 服务端/控制端：服务端创建资源并注册五个 Worker；控制端使用 `compileAgent()`、`createHttpTransport()` 和 `registerRemote()`，再执行编译后的计划。Graph/Loop 留在控制端，Node 调用跨 HTTP(S)，数据库和模型 Key 留在执行端。同机多进程另有 IPC。token、TLS、地址清单、停止流程和通信限制见[完整部署步骤](docs/agent-from-zero.zh-CN.md#6-同一-json-迁移到-http-worker)；`agent.json` 目前不负责自动部署或发现远端服务。
+
+配置化 Agent 还提供独立 Graph/Subgraph 运行、持久检查点、可等待的状态更新／暂停边界，以及编辑器 Schema、诊断和节点映射。见[执行与恢复指南](docs/agent-execution.zh-CN.md)（需要 `0.1.5` 或更高版本）。
 
 第一张 Graph 不需要模型、Redis 或凭证。完整 Agent 使用真实模型、Redis Context 和数据库 Memory，详见[非常详细的 npm 包使用教程](https://github.com/erwinmsmith/Ditto/blob/main/docs/package-guide.zh-CN.md)：从空项目安装、TypeScript、API 返回值、工具注册、Loop 组合，到持久化、跨进程恢复、产物输出和故障排查。
 
