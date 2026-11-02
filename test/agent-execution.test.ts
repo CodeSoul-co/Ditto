@@ -226,6 +226,35 @@ test("boundary cancellation and nonpersistent pause stop subsequent Graphs", asy
   } finally { await agent.close(); }
 });
 
+test("final boundary cancellation preserves confirmed effects without committing the transition", async () => {
+  let calls = 0, saved: AgentCheckpoint | undefined;
+  const agent = await createAgent(definition(), { workers: { echo: worker(async x => { calls++; return x; }) } });
+  const controller = new AbortController(), reason = new Error("cancel at final boundary");
+  const stateCheckpoint = { id: "final-boundary", version: "1", save(cp: AgentCheckpoint) { saved = cp; } };
+  try {
+    await assert.rejects(agent.run("confirmed", { stateCheckpoint, signal: controller.signal,
+      onBoundary: async boundary => {
+        if (boundary.iteration !== 2) return;
+        await Promise.resolve();
+        controller.abort(reason);
+        return { update: { value: "must not commit" } };
+      },
+    }), error => error === reason);
+    assert.equal(calls, 4);
+    assert.equal(saved?.state.phase, "boundary");
+    assert.equal(saved?.state.step, "work");
+    assert.equal(saved?.state.iteration, 2);
+    assert.equal(saved?.state.state.value, "confirmed");
+    assert.equal(saved?.state.result, "confirmed");
+    assert.equal(saved?.state.termination, undefined);
+    assert.deepEqual(await agent.run("confirmed", { stateCheckpoint: { ...stateCheckpoint, resume: saved! },
+      onBoundary: boundary => { assert.equal(boundary.id, "final-boundary:2"); },
+    }), { value: "confirmed", reason: "completed" });
+    assert.equal(calls, 4);
+    assert.equal(saved?.state.phase, "completed");
+  } finally { await agent.close(); }
+});
+
 test("zero-iteration checkpoints complete without a Graph or a boundary callback", async () => {
   const source = definition();
   const agent = await createAgent({ ...source, loop: { ...source.loop!, while: false, output: ref("state") } },

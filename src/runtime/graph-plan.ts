@@ -84,6 +84,7 @@ export async function runGraphPlan<I, R>(
       onGraph?.({ ...event, status: "completed" });
       step = await iterator.next(output);
     }
+    signal?.throwIfAborted();
     return step.value;
   } finally {
     // Drain cleanup; never execute a yielded Graph after termination.

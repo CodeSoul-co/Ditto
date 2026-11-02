@@ -131,6 +131,7 @@ export async function* executeAgent(
     }
     const decision = await options.onBoundary?.(Object.freeze({ id: `${executionId}:${frame.iteration}`, iteration: frame.iteration,
       step: frame.step, state: snapshot(frame.state) as Record<string, JsonValue>, result: snapshot(frame.result) }));
+    options.signal?.throwIfAborted();
     if (decision !== undefined) {
       fields(record(decision, "/boundary"), ["update", "pause"], "/boundary");
       if (decision.pause !== undefined) boolean(decision.pause, "/boundary/pause");

@@ -278,6 +278,26 @@ test("Loop plan cancellation and iteration budgets cannot be swallowed; close dr
   assert.equal(disposed, true);
 });
 
+for (const executeGraph of [false, true]) test(`async Loop completion cannot swallow cancellation (Graph: ${executeGraph})`, async () => {
+  const { graphStep } = await import("../src/runtime/index.js");
+  const controller = new AbortController(), reason = new Error("cancel before plan completion");
+  let calls = 0, cleaned = false;
+  const runtime = createDitto({ workers: [worker(async id => { calls++; return id; })] });
+  const operation = graph<string>("final").node("read", "MEMORY.GET", [], read);
+  try {
+    await assert.rejects(runtime.loop({ id: "async-cancel", async *plan() {
+      try {
+        if (executeGraph) yield* graphStep(operation, "confirmed");
+        await Promise.resolve();
+        controller.abort(reason);
+        return "must not succeed";
+      } finally { cleaned = true; }
+    } }, undefined, { signal: controller.signal }), error => error === reason);
+    assert.equal(calls, executeGraph ? 1 : 0);
+    assert.equal(cleaned, true);
+  } finally { await runtime.close(); }
+});
+
 test("Loop plans retain Worker bindings and recover stage cancellation within one shared budget", async () => {
   const { graphStep } = await import("../src/runtime/index.js");
   const seen: string[] = [];
