@@ -44,7 +44,7 @@ shape/binding text and input are hashed. The explicit `version` must additionall
 configuration, captured closure values and resource snapshots, which cannot be introspected.
 Checkpoint mode uses execution waves; ordinary execution retains its asynchronous scheduler.
 
-Checkpoint mode now saves dispatch intents in `uncertain` before starting each wave, then confirms successful outputs after the wave drains. A crash or failed completion save therefore leaves unresolved intents. Restoration throws `UncertainGraphCheckpointError`; the host must check external receipts and explicitly use `reconcileGraphCheckpoint` before resuming. This is not exactly-once external execution: use idempotency keys or resource transactions. Always reload the latest durable checkpoint; do not retry an older one against changed resources. This intent protocol is a source addition after `0.1.4`; old checkpoints do not acquire it retroactively.
+Checkpoint mode now saves dispatch intents in `uncertain` before starting each wave, then confirms successful outputs after the wave drains. A crash or failed completion save therefore leaves unresolved intents. Restoration throws `UncertainGraphCheckpointError`; the host must check external receipts and explicitly use `reconcileGraphCheckpoint` before resuming. This is not exactly-once external execution: use idempotency keys or resource transactions. Always reload the latest durable checkpoint; do not retry an older one against changed resources. This intent protocol is available in `0.1.5` and later; old checkpoints do not acquire it retroactively.
 
 For explicit-state Loops, pass `{ stateCheckpoint: { id, version, save, resume? } }` to
 `runtime.loop`. Checkpoints contain the state after an iteration and the next iteration

@@ -2,7 +2,7 @@
 
 **English** · [简体中文](agent-execution.zh-CN.md) · [Configuration](agent-json.md)
 
-These additions are available in the source build; the published `0.1.4` package does not include them. Use the installed tarball acceptance command below until a newer package is released. Existing configuration files and `agent.run(input)` continue to work.
+These APIs are available in `@codesoul-co/ditto@0.1.5` and later. Existing configuration files and `agent.run(input)` continue to work.
 
 ## Run a Graph independently
 
@@ -138,7 +138,7 @@ Diagnostic `path` is an RFC 6901 JSON Pointer. `graphId` / `nodeId` are included
 The [configuration](worker-api/examples/runtime/configured-recovery.agent.json) uses main, a two-Subgraph work Graph and a reusable two-Node stage. The [host](worker-api/examples/runtime/configured-recovery.ts) registers one Interaction Worker and provides an atomic file checkpoint. This deterministic control-plane example needs no model or database and is not a five-Worker product end-to-end test. For complete resource integration, use [Agent from zero](agent-from-zero.md).
 
 ```sh
-# Run with a source-built package or an installed package containing these APIs.
+# Requires @codesoul-co/ditto@0.1.5 or later.
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo pause
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo

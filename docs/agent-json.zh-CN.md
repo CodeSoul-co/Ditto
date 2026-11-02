@@ -10,7 +10,7 @@
 
 ## 1. 安装与运行
 
-使用 Node.js 24+、npm 11+、ESM 和 `@codesoul-co/ditto@0.1.4` 或更高版本：
+使用 Node.js 24+、npm 11+、ESM 和 `@codesoul-co/ditto@0.1.5` 或更高版本：
 
 ```sh
 npm init -y

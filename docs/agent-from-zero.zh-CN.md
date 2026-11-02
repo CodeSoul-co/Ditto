@@ -2,7 +2,7 @@
 
 [English](agent-from-zero.md) · [配置协议](agent-json.zh-CN.md)
 
-这条路线使用已发布的 `@codesoul-co/ditto@0.1.4` 与 `@codesoul-co/ditto-retrieval@0.1.0`。先在单进程运行一个由 JSON 定义、包含五个 Worker 的 Agent，再把相同 Graph/Loop 的 Node 调用改为 HTTP。模型、工具、Redis 和文件 SQLite 都参与实际执行；示例业务代码属于你的应用，不是 npm Core 的隐藏接口。
+这条路线使用已发布的 `@codesoul-co/ditto@0.1.5` 与 `@codesoul-co/ditto-retrieval@0.1.0`。先在单进程运行一个由 JSON 定义、包含五个 Worker 的 Agent，再把相同 Graph/Loop 的 Node 调用改为 HTTP。模型、工具、Redis 和文件 SQLite 都参与实际执行；示例业务代码属于你的应用，不是 npm Core 的隐藏接口。
 
 ## 1. 创建独立 npm 项目
 

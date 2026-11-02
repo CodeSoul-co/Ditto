@@ -2,7 +2,7 @@
 
 [English](agent-execution.md) · **简体中文** · [配置协议](agent-json.zh-CN.md)
 
-这些新增能力已进入源码构建，已发布的 `0.1.4` 尚不包含它们。新包发布前可使用文末的 tarball 验收命令。现有配置文件及 `agent.run(input)` 用法保持兼容。
+这些 API 从 `@codesoul-co/ditto@0.1.5` 开始提供。现有配置文件及 `agent.run(input)` 用法保持兼容。
 
 ## 单独运行 Graph
 
@@ -138,7 +138,7 @@ const source = compiled.sourceMap.main['research/search'];
 [配置文件](worker-api/examples/runtime/configured-recovery.agent.json) 包含 main、由两个 Subgraph 调用组成的 work Graph，以及可复用的双 Node stage。[宿主代码](worker-api/examples/runtime/configured-recovery.ts) 注册一个 Interaction Worker，并提供原子文件检查点。这是确定性的控制面示例，不需要模型或数据库，也不是五 Worker 产品端到端验收。完整资源接入见[从零构建 Agent](agent-from-zero.zh-CN.md)。
 
 ```sh
-# 使用源码构建的包，或之后发布且包含这些 API 的 npm 包。
+# 需要 @codesoul-co/ditto@0.1.5 或更高版本。
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo pause
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo
 node docs/worker-api/examples/runtime/configured-recovery.ts /tmp/ditto-demo

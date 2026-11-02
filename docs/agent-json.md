@@ -10,7 +10,7 @@ The hierarchy stays **Loop → Graph/Subgraph → Node → Worker**. A Subgraph 
 
 ## 1. Install and run
 
-Use Node.js 24+, npm 11+, ESM and `@codesoul-co/ditto@0.1.4` or later:
+Use Node.js 24+, npm 11+, ESM and `@codesoul-co/ditto@0.1.5` or later:
 
 ```sh
 npm init -y
