@@ -19,6 +19,7 @@ Start with the architecture and development guides, then follow the references f
 | Development and Integration | [Read](getting-started.md) | [阅读](getting-started.zh-CN.md) | Installation, checks, package entry points, and custom Workers and Nodes |
 | Implemented Worker APIs | [Read](worker-api/README.md) | [阅读](worker-api/README.zh-CN.md) | CONTEXT, INFER, MEMORY, INTERACTION and optional RETRIEVAL APIs |
 | Runtime / Graph / Loop | [Read](worker-api/runtime.md) | [阅读](worker-api/runtime.zh-CN.md) | Graph bindings, loops, worker services, IPC / HTTP |
+| Agent execution and editors | [Read](agent-execution.md) | [阅读](agent-execution.zh-CN.md) | Standalone Graphs, durable resume, boundary pause, schema and node mapping |
 | Checkpoints and budgets | [Read](worker-api/checkpoints.md) | [阅读](worker-api/checkpoints.zh-CN.md) | Portable Graph/Loop state, isolated branches, token admission and settlement |
 | Worker Communication | [Read](worker-communication.md) | [阅读](worker-communication.zh-CN.md) | Local and remote calls, HTTP deployment, lifecycle, events, and artifacts |
 | Interaction and Runtime Configuration | [Read](interaction-runtime.md) | [阅读](interaction-runtime.zh-CN.md) | Providers, models, credentials, tools, MCP, Skills, and Sandbox permissions |

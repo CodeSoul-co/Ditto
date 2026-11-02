@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "configured_recovery",
+  "graphs": {
+    "main": {
+      "nodes": [
+        { "id": "route", "type": "INTERACTION.ACT.TOOL", "input": { "call": { "id": "route", "name": "echo", "arguments": { "value": { "$ref": "input" } } } }, "require": { "path": "status", "equals": "success" } },
+        { "id": "observe", "type": "INTERACTION.OBSERVE", "dependsOn": ["route"], "input": { "result": { "$ref": "nodes.route" } } }
+      ],
+      "output": { "$ref": "nodes.observe.message.content" }
+    },
+    "work": {
+      "nodes": [
+        { "id": "prepare", "kind": "subgraph", "graph": "stage", "input": { "$ref": "input" } },
+        { "id": "finish", "kind": "subgraph", "graph": "stage", "dependsOn": ["prepare"], "input": { "$ref": "nodes.prepare" } }
+      ],
+      "output": { "$ref": "nodes.finish" }
+    },
+    "stage": {
+      "nodes": [
+        { "id": "call", "type": "INTERACTION.ACT.TOOL", "input": { "call": { "id": "echo", "name": "echo", "arguments": { "value": { "$ref": "input" } } } }, "require": { "path": "status", "equals": "success" } },
+        { "id": "observe", "type": "INTERACTION.OBSERVE", "dependsOn": ["call"], "input": { "result": { "$ref": "nodes.call" } } }
+      ],
+      "output": { "$ref": "nodes.observe.message.content" }
+    }
+  },
+  "loop": {
+    "entry": "route",
+    "maxIterations": 2,
+    "state": { "value": "" },
+    "steps": {
+      "route": { "graph": "main", "input": { "$ref": "input" }, "assign": { "value": { "$ref": "result" } }, "transitions": [{ "next": "work" }] },
+      "work": { "graph": "work", "input": { "$ref": "state.value" }, "transitions": [{ "end": "completed" }] }
+    },
+    "output": { "$ref": "result" }
+  },
+  "deployment": { "workers": [{ "id": "tools", "use": "tools" }] }
+}

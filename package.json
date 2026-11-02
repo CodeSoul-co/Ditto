@@ -53,7 +53,8 @@
     "./worker/node": {
       "types": "./dist/worker/node.d.ts",
       "import": "./dist/worker/node.js"
-    }
+    },
+    "./agent.schema.json": "./dist/runtime/agent.schema.json"
   },
   "scripts": {
     "build": "npm run build:core && npm run build:retrieval",
@@ -326,7 +327,9 @@
     "example:json:router": "npm run build && node examples/json-agent/router.ts",
     "example:json:conversation": "npm run build && node --env-file=.env examples/json-agent/conversation.ts",
     "example:json:template": "npm run build && node examples/json-agent/quickstart.ts \"Hello Ditto\" agent_example.json",
-    "check:package:json-agents": "npm run build && node --env-file=.env scripts/check-json-agent-package.ts"
+    "check:package:json-agents": "npm run build && node --env-file=.env scripts/check-json-agent-package.ts",
+    "check:package:agent-recovery": "npm run build && node scripts/check-agent-recovery-package.ts",
+    "example:agent:recovery": "npm run build && node docs/worker-api/examples/runtime/configured-recovery.ts"
   },
   "engines": {
     "node": ">=24.0.0",
@@ -334,6 +337,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "ajv": "^8.20.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {

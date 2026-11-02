@@ -5,7 +5,7 @@ import type { WorkerDefinition } from "../worker/define-worker.js";
 import { PayloadCodec, type ArtifactStore } from "./artifact.js";
 import { LocalEventFabric, type EventFabric, type EventHandler, type RuntimeEvent } from "./communication/events.js";
 import { graph, runGraph, type ExecutionGraph, type GraphRunOptions } from "./graph.js";
-import { runGraphPlan, type LoopPlanDefinition, type LoopGraphEvent } from "./graph-plan.js";
+import { runGraphPlan, type LoopPlanDefinition, type AsyncLoopPlanDefinition, type LoopGraphEvent } from "./graph-plan.js";
 import { runLoop, type LoopDefinition } from "./loop.js";
 import type { LoopCheckpointOptions } from "./checkpoint.js";
 import { WorkerRouter, type WorkerEntry } from "./router.js";
@@ -150,7 +150,7 @@ export class DittoRuntime implements RuntimeClient {
   }
 
   async loop<I, R>(
-    definition: LoopPlanDefinition<I, R>,
+    definition: LoopPlanDefinition<I, R> | AsyncLoopPlanDefinition<I, R>,
     input: NoInfer<I>,
     options?: LoopRunOptions,
   ): Promise<R>;
@@ -160,7 +160,7 @@ export class DittoRuntime implements RuntimeClient {
     options?: LoopRunOptions,
   ): Promise<S>;
   async loop<S, I, O extends object, R>(
-    definition: LoopDefinition<S, I, O> | LoopPlanDefinition<S, R>,
+    definition: LoopDefinition<S, I, O> | LoopPlanDefinition<S, R> | AsyncLoopPlanDefinition<S, R>,
     initialState: NoInfer<S>,
     options: LoopRunOptions = {},
   ): Promise<S | R> {

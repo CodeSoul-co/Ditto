@@ -271,12 +271,12 @@ Credentials, database clients and permission ceilings stay in the host. Only off
 
 ## 6. Public API and execution boundaries
 
-- `compileAgent(unknown)` returns immutable `definition`, expanded `graphs`, a generator `plan`, and `run(runtime,input,options)`. Compilation constructs executable objects, not TypeScript source files. It does not instantiate Workers or perform IO.
+- `compileAgent(unknown)` returns immutable `definition`, expanded `graphs`, a generator `plan`, `sourceMap`, `runGraph(name,runtime,input,options)`, and `run(runtime,input,options)`. Compilation constructs executable objects, not TypeScript source files. It does not instantiate Workers or perform IO.
 - `await createAgent(unknown, options)` compiles and registers host Workers selected by the JSON. It returns `compiled`, `runtime`, `run(input,options)` and `close()`.
 - Both APIs are exported from `@codesoul-co/ditto/runtime` and the package root. `AgentDefinition` and related types support TypeScript authoring. JSON loading is explicit: `JSON.parse(await readFile(...))`.
 - `compiled.run` preflights every declared Graph and binding, even unselected branches. Dynamic parameters are validated by handlers. Direct use of `compiled.plan` with `runtime.loop` skips this compiler preflight; prefer `compiled.run`.
 - `agent.run` accepts Graph concurrency, cancellation and `onGraph` events. Deployment bindings stay fixed. `compiled.run` can use existing local/remote Workers and explicit execution bindings. Close host-owned runtimes yourself; close factory-owned ones with `agent.close()`.
-- The initial compiler uses one generator Loop. It rejects `checkpoint` / `stateCheckpoint`; it does not persist execution stacks. Application Memory can support completed-turn replay, as in the conversation example. For durable in-flight state-machine recovery, use the [advanced state Loop tutorial](handbook/graph-loop.en.md) and [checkpoints](worker-api/checkpoints.md).
+- `stateCheckpoint` persists the configured Agent cursor, state and inner Graph checkpoints. Awaited `onBoundary` callbacks can update state and request a pause. `runGraph` independently executes a Graph with output projection, binding preflight and Graph checkpoints. Schema, structured diagnostics and expanded-node mappings support editors. See [execution, recovery and editor integration](agent-execution.md) for contracts, version availability and a runnable example.
 
 ## 7. More detailed construction modes
 

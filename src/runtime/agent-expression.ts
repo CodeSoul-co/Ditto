@@ -1,15 +1,16 @@
 import type { JsonValue } from "../contracts/common.js";
 import { isDeepStrictEqual } from "node:util";
+import { AgentValidationError, pointer } from "./agent-diagnostics.js";
 
 export type Expression = (scope: Readonly<Record<string, unknown>>) => unknown;
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
-export function fail(where: string, message: string): never { throw new Error(`Agent ${where}: ${message}`); }
+export function fail(where: string, message: string, code?: string): never { throw new AgentValidationError(where, message, code); }
 export function record(value: unknown, where: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(where, "expected an object");
   return value as Record<string, unknown>;
 }
 export function fields(value: Record<string, unknown>, allowed: readonly string[], where: string): void {
-  for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(where, `unknown field ${key}`);
+  for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(pointer(where, key), `unknown field ${key}`, "UNKNOWN_FIELD");
 }
 export function name(value: unknown, where: string): string {
   if (typeof value !== "string" || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(value) || forbidden.has(value))
@@ -25,23 +26,23 @@ export function positive(value: unknown, where: string): number {
 export function snapshot(value: unknown): JsonValue {
   let count = 0;
   const ancestors = new Set<object>();
-  function visit(v: unknown, depth: number): JsonValue {
-    if (++count > 100_000 || depth > 64) fail("definition", "JSON size/depth limit exceeded");
+  function visit(v: unknown, depth: number, path: string): JsonValue {
+    if (++count > 100_000 || depth > 64) fail(path, "JSON size/depth limit exceeded", "LIMIT_EXCEEDED");
     if (v === null || typeof v === "string" || typeof v === "boolean") return v;
     if (typeof v === "number" && Number.isFinite(v)) return v;
-    if (!v || typeof v !== "object" || ancestors.has(v)) fail("definition", "expected acyclic JSON");
+    if (!v || typeof v !== "object" || ancestors.has(v)) fail(path, "expected acyclic JSON");
     if (!Array.isArray(v) && Object.getPrototypeOf(v) !== Object.prototype && Object.getPrototypeOf(v) !== null)
-      fail("definition", "expected plain JSON objects");
+      fail(path, "expected plain JSON objects");
     ancestors.add(v);
-    const result = Array.isArray(v) ? v.map(item => visit(item, depth + 1))
+    const result = Array.isArray(v) ? v.map((item, i) => visit(item, depth + 1, pointer(path, i)))
       : Object.fromEntries(Object.entries(v).map(([key, item]) => {
-        if (forbidden.has(key)) fail("definition", `forbidden key ${key}`);
-        return [key, visit(item, depth + 1)];
+        if (forbidden.has(key)) fail(pointer(path, key), `forbidden key ${key}`);
+        return [key, visit(item, depth + 1, pointer(path, key))];
       }));
     ancestors.delete(v);
     return Object.freeze(result);
   }
-  return visit(value, 0);
+  return visit(value, 0, "");
 }
 
 export function pathParts(value: unknown, where: string): string[] {
@@ -74,7 +75,7 @@ function number(value: unknown, where: string): number {
 export function expression(value: unknown, roots: readonly string[], where: string, dependencies?: readonly string[], references?: Set<string>): Expression {
   if (value === null || typeof value !== "object") return () => value;
   if (Array.isArray(value)) {
-    const items = value.map((v, i) => expression(v, roots, `${where}[${i}]`, dependencies, references));
+    const items = value.map((v, i) => expression(v, roots, pointer(where, i), dependencies, references));
     return scope => items.map(fn => fn(scope));
   }
   const object = record(value, where);
@@ -84,12 +85,12 @@ export function expression(value: unknown, roots: readonly string[], where: stri
   }
   if (Object.hasOwn(object, "$ref")) {
     fields(object, ["$ref", "default"], where);
-    const parts = pathParts(object.$ref, where);
+    const parts = pathParts(object.$ref, pointer(where, "$ref"));
     references?.add(parts.slice(0, parts[0] === "nodes" ? 2 : 1).join("."));
-    if (!roots.includes(parts[0]!)) fail(where, `unknown reference root ${parts[0]}`);
+    if (!roots.includes(parts[0]!)) fail(pointer(where, "$ref"), `unknown reference root ${parts[0]}`, "INVALID_REFERENCE");
     if (parts[0] === "nodes" && dependencies && (!parts[1] || !dependencies.includes(parts[1])))
-      fail(where, "node references must name a declared dependency");
-    const fallback = Object.hasOwn(object, "default") ? expression(object.default, roots, where, dependencies, references) : undefined;
+      fail(pointer(where, "$ref"), "node references must name a declared dependency", "INVALID_REFERENCE");
+    const fallback = Object.hasOwn(object, "default") ? expression(object.default, roots, pointer(where, "default"), dependencies, references) : undefined;
     return scope => {
       const found = lookup(scope, parts);
       if (found !== undefined) return structuredClone(found);
@@ -99,11 +100,11 @@ export function expression(value: unknown, roots: readonly string[], where: stri
   }
   if (Object.hasOwn(object, "$map")) {
     fields(object, ["$map"], where);
-    const mapping = record(object.$map, where);
-    fields(mapping, ["items", "value"], where);
+    const mapping = record(object.$map, pointer(where, "$map"));
+    fields(mapping, ["items", "value"], pointer(where, "$map"));
     if (!Object.hasOwn(mapping, "items") || !Object.hasOwn(mapping, "value")) fail(where, "$map requires items and value");
-    const items = expression(mapping.items, roots, where, dependencies, references);
-    const project = expression(mapping.value, [...roots, "item", "index"], where, dependencies, references);
+    const items = expression(mapping.items, roots, `${where}/$map/items`, dependencies, references);
+    const project = expression(mapping.value, [...roots, "item", "index"], `${where}/$map/value`, dependencies, references);
     return scope => array(items(scope), where).map((item, index) => project(Object.assign(
       Object.defineProperties({}, Object.getOwnPropertyDescriptors(scope)), { item, index },
     )));
@@ -117,8 +118,8 @@ export function expression(value: unknown, roots: readonly string[], where: stri
     };
     const op = String(object.$op);
     if (!Object.hasOwn(arities, op) || !Array.isArray(object.args) || object.args.length !== arities[op])
-      fail(where, "unknown operator or invalid argument count");
-    const args = object.args.map(v => expression(v, roots, where, dependencies, references));
+      fail(where, "unknown operator or invalid argument count", "INVALID_EXPRESSION");
+    const args = object.args.map((v, i) => expression(v, roots, `${where}/args/${i}`, dependencies, references));
     return scope => {
       const a = args[0]!(scope);
       if (op === "and") return boolean(a, where) && boolean(args[1]!(scope), where);
@@ -152,7 +153,7 @@ export function expression(value: unknown, roots: readonly string[], where: stri
   }
   const entries = Object.entries(object).map(([key, v]) => {
     if (key.startsWith("$")) fail(where, `unknown expression ${key}; use $literal for literal data`);
-    return [key, expression(v, roots, `${where}.${key}`, dependencies, references)] as const;
+    return [key, expression(v, roots, pointer(where, key), dependencies, references)] as const;
   });
   return scope => Object.fromEntries(entries.map(([key, fn]) => [key, fn(scope)]));
 }

@@ -44,7 +44,7 @@ export interface GraphCheckpointState {
   readonly graphHash: string;
   readonly inputHash: string;
   readonly outputs: Readonly<Record<string, unknown>>;
-  /** Failed in-flight operations may have effects; automatic replay is forbidden. */
+  /** Persisted before dispatch; unresolved operations may have effects and cannot replay. */
   readonly uncertain: readonly string[];
 }
 export type GraphCheckpoint = StateCheckpoint<GraphCheckpointState>;
@@ -54,6 +54,33 @@ export interface GraphCheckpointOptions {
   readonly resume?: GraphCheckpoint;
   /** Awaited at a quiescent boundary, before more Nodes are admitted. */
   readonly save: (checkpoint: GraphCheckpoint) => void | Promise<void>;
+}
+
+export class UncertainGraphCheckpointError extends Error {
+  readonly code = "UNCERTAIN_GRAPH_OPERATIONS";
+  constructor(readonly checkpoint: GraphCheckpoint) {
+    super(`Graph checkpoint has uncertain operations: ${checkpoint.state.uncertain.join(", ")}`);
+    this.name = "UncertainGraphCheckpointError";
+  }
+}
+
+/** Host-only reconciliation after checking external effects. Never retries implicitly. */
+export function reconcileGraphCheckpoint(
+  checkpoint: GraphCheckpoint,
+  resolutions: Readonly<Record<string, { readonly output: unknown } | { readonly retry: true }>>,
+): GraphCheckpoint {
+  const state = restoreState(checkpoint, checkpoint.scope, checkpoint.version);
+  const outputs: Record<string, unknown> = Object.assign(Object.create(null), state.outputs);
+  const pending = new Set(state.uncertain);
+  for (const [id, resolution] of Object.entries(resolutions)) {
+    if (!pending.has(id)) throw new Error(`Operation is not uncertain: ${id}`);
+    if (Object.hasOwn(resolution, "output") && Object.keys(resolution).length === 1 && (resolution as { output: unknown }).output !== undefined)
+      outputs[id] = (resolution as { output: unknown }).output;
+    else if (!("retry" in resolution) || resolution.retry !== true || Object.keys(resolution).length !== 1)
+      throw new Error(`Invalid operation resolution: ${id}`);
+    pending.delete(id);
+  }
+  return checkpointState(checkpoint.scope, checkpoint.version, { ...state, outputs, uncertain: [...pending] });
 }
 
 export interface LoopCheckpointState {

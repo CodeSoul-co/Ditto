@@ -34,6 +34,7 @@ await mkdir(join(out, 'public/downloads'), { recursive: true });
 await writeFile(join(out,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2022'}}));
 await cp(join(root, 'logo_project.png'), join(out, 'public/logo.png'));
 await cp(join(root, 'logo_project.png'), join(out, 'public', logoName));
+await cp(join(root, 'src/runtime/agent.schema.json'), join(out, 'public/agent.schema.json'));
 
 function target(path, from, label = "") {
   if (/^(?:https?:|mailto:|tel:|data:)/.test(path)) {

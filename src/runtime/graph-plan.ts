@@ -8,11 +8,15 @@ export interface GraphInvocation {
   readonly options: GraphRunOptions;
 }
 export type GraphPlan<R> = Generator<GraphInvocation, R, unknown>;
+export type AsyncGraphPlan<R> = AsyncGenerator<GraphInvocation, R, unknown>;
 export interface LoopPlanDefinition<I, R> {
   readonly id: string;
   readonly plan: (input: I) => GraphPlan<R>;
   /** Bounds Graph executions, including failed Graphs and repetitions. */
   readonly maxIterations?: number;
+}
+export interface AsyncLoopPlanDefinition<I, R> extends Omit<LoopPlanDefinition<I, R>, "plan"> {
+  readonly plan: (input: I) => AsyncGraphPlan<R>;
 }
 export interface LoopGraphEvent {
   readonly loopId: string;
@@ -36,7 +40,7 @@ export function* graphStep<I, O extends object>(
   return output as O;
 }
 export async function runGraphPlan<I, R>(
-  definition: LoopPlanDefinition<I, R>,
+  definition: LoopPlanDefinition<I, R> | AsyncLoopPlanDefinition<I, R>,
   input: I,
   run: (
     graph: ExecutionGraph<unknown, object>,
@@ -53,7 +57,7 @@ export async function runGraphPlan<I, R>(
   const iterator = definition.plan(input);
   let step: IteratorResult<GraphInvocation, R>;
   try {
-    step = iterator.next();
+    step = await iterator.next();
     for (let iteration = 0; !step.done; iteration++) {
       signal?.throwIfAborted();
       if (iteration >= maximum) throw new Error("Loop iteration limit reached");
@@ -73,16 +77,16 @@ export async function runGraphPlan<I, R>(
       } catch (error) {
         onGraph?.({ ...event, status: "failed" });
         signal?.throwIfAborted(); // Whole-Loop cancellation cannot be swallowed by a plan.
-        step = iterator.throw(error);
+        step = await iterator.throw(error);
         continue;
       }
       signal?.throwIfAborted();
       onGraph?.({ ...event, status: "completed" });
-      step = iterator.next(output);
+      step = await iterator.next(output);
     }
     return step.value;
   } finally {
-    // Run synchronous cleanup; never execute a yielded Graph after termination.
-    iterator.return(undefined as R);
+    // Drain cleanup; never execute a yielded Graph after termination.
+    await iterator.return(undefined as R);
   }
 }

@@ -196,3 +196,6 @@ node --env-file=.env scripts/check-json-agent-package.ts --registry --keep
 ```
 
 This installs public npm packages outside the repository and verifies local five-Worker tool execution, the CLI without an extension, unchanged JSON over real HTTP including incorrect tokens, third-party Workers, Subgraph routing, cross-process recovery from SQLite after Redis expiry, budgets, permissions and storage failures. HTTP verification uses two local processes and a real socket; it does not verify your production TLS, cross-machine network or PostgreSQL/MySQL deployment.
+
+
+After loading the configuration, see [execution and recovery](agent-execution.md) for standalone Graphs, durable resume, message boundaries and canvas editor tooling.

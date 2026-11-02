@@ -19,6 +19,7 @@
 | 开发与接入 | [Read](getting-started.md) | [阅读](getting-started.zh-CN.md) | 安装、检查、包入口以及自定义 Worker 和 Node |
 | Worker API（已实现） | [Read](worker-api/README.md) | [阅读](worker-api/README.zh-CN.md) | CONTEXT、INFER、MEMORY、INTERACTION 与可选 RETRIEVAL 的详细接口及调用 |
 | Runtime / Graph / Loop | [Read](worker-api/runtime.md) | [阅读](worker-api/runtime.zh-CN.md) | Graph bindings, loops, worker services, IPC / HTTP |
+| Agent 执行与编辑器 | [Read](agent-execution.md) | [阅读](agent-execution.zh-CN.md) | 独立图、持久恢复、边界暂停、Schema 与节点映射 |
 | 检查点与预算 | [Read](worker-api/checkpoints.md) | [阅读](worker-api/checkpoints.zh-CN.md) | Graph/Loop 可移植状态、隔离分支、token 准入与结算 |
 | Worker 通信 | [Read](worker-communication.md) | [阅读](worker-communication.zh-CN.md) | 本地与远程调用、HTTP 部署、生命周期、事件与 Artifact |
 | 交互与运行配置 | [Read](interaction-runtime.md) | [阅读](interaction-runtime.zh-CN.md) | Provider、模型、凭证、工具、MCP、Skill 和 Sandbox 权限 |

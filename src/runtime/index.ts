@@ -1,5 +1,5 @@
 export { createDitto, DittoRuntime } from "./runtime.js";
-export { compileAgent, createAgent } from "./agent.js";
+export { compileAgent, createAgent, validateAgent } from "./agent.js";
 export type {
   AgentDefinition, AgentGraph, AgentNode, AgentSubgraph, AgentExpression, AgentLoop,
   AgentLoopStep, AgentTransition, AgentDeployment, AgentWorker, CreateAgentOptions,
@@ -36,7 +36,15 @@ export * from "./budget.js";
 export { graphStep } from "./graph-plan.js";
 export type {
   GraphPlan,
+  AsyncGraphPlan,
+  AsyncLoopPlanDefinition,
   GraphInvocation,
   LoopPlanDefinition,
   LoopGraphEvent,
 } from "./graph-plan.js";
+
+export { AgentPausedError } from "./agent-execution.js";
+export type { AgentRunOptions, AgentCheckpoint, AgentCheckpointState, AgentCheckpointOptions, AgentBoundary, AgentBoundaryDecision } from "./agent-execution.js";
+export { AgentValidationError } from "./agent-diagnostics.js";
+export type { AgentDiagnostic, AgentNodeSource } from "./agent-diagnostics.js";
+export { agentSchema } from "./agent-schema.js";

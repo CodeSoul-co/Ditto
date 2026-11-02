@@ -271,12 +271,12 @@ Graph ID 指实际调度的入口图：main 调用 Subgraph 时，将展开路�
 
 ## 6. 公开 API 与执行边界
 
-- `compileAgent(unknown)` 返回不可变的 `definition`、展开后的 `graphs`、生成器 `plan` 和 `run(runtime,input,options)`。编译产物是可执行对象，不是 TypeScript 源文件；编译不会创建 Worker 或执行 IO。
+- `compileAgent(unknown)` 返回不可变的 `definition`、展开后的 `graphs`、生成器 `plan`、`sourceMap`、`runGraph(name,runtime,input,options)` 和 `run(runtime,input,options)`。编译产物是可执行对象，不是 TypeScript 源文件；编译不会创建 Worker 或执行 IO。
 - `await createAgent(unknown, options)` 编译配置并注册 JSON 选择的宿主 Worker，返回 `compiled`、`runtime`、`run(input,options)`、`close()`。
 - 两个函数均从 `@codesoul-co/ditto/runtime` 和主包导出；`AgentDefinition` 等公开类型支持 TypeScript 编写配置。JSON 文件由应用显式加载：`JSON.parse(await readFile(...))`。
 - `compiled.run` 预检全部声明图和绑定，包括尚未选择的分支；动态参数由 handler 校验。直接将 `compiled.plan` 交给 `runtime.loop` 会跳过编译器预检，推荐使用 `compiled.run`。
 - `agent.run` 接受图并发、取消信号、`onGraph` 事件，部署绑定保持固定。`compiled.run` 可复用已注册的本地/远程 Worker 和执行绑定。宿主创建的 Runtime 由宿主关闭；工厂创建的 Runtime 用 `agent.close()` 关闭。
-- 初版编译器使用一个生成器 Loop，拒绝 `checkpoint` / `stateCheckpoint`，不保存执行栈。应用 Memory 可以实现完整会话示例中的已完成轮次重放；运行中状态机持久恢复请使用[深入状态式 Loop 教程](handbook/graph-loop.md)与[检查点](worker-api/checkpoints.zh-CN.md)。
+- `stateCheckpoint` 保存配置化 Agent 的执行位置、状态和内部 Graph 检查点；`onBoundary` 在步骤完成后被等待，可更新状态并请求暂停。独立图通过 `runGraph` 执行，保留输出投影、绑定预检和 Graph 检查点。Schema、结构化诊断及展开节点映射供编辑器使用。协议、版本说明及可运行示例见[执行、恢复与编辑器接入](agent-execution.zh-CN.md)。
 
 ## 7. 更详细的搭建模式
 

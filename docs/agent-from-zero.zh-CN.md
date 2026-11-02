@@ -196,3 +196,6 @@ node --env-file=.env scripts/check-json-agent-package.ts --registry --keep
 ```
 
 它在仓库外安装公开 npm 包，验证本地五 Worker、大图工具调用、无需扩展的 CLI、相同 JSON 的真实 HTTP 调用与错误 token，以及第三方 Worker、Subgraph 路由、跨进程 Redis 过期后从 SQLite 恢复、预算、权限与存储故障。HTTP 验收使用本机两个进程和真实 socket，不等于验证你的生产 TLS、跨机网络或 PostgreSQL/MySQL 部署。
+
+
+配置加载完成后，独立图执行、持久恢复、补充消息边界及画布编辑器工具见[执行与恢复指南](agent-execution.zh-CN.md)。
