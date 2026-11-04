@@ -13,8 +13,6 @@
   <strong>English</strong> | <a href="https://github.com/erwinmsmith/Ditto/blob/main/README.zh-CN.md">简体中文</a>
 </p>
 
-> The definition is [Node System and API Contract](https://github.com/erwinmsmith/Ditto/blob/main/docs/13-node-api-contract.md). It contains the final Node tree, semantic boundaries, fixed shared types, and every public Node input/output contract.
-
 **[Build a complete Agent from scratch](docs/agent-from-zero.md)** · [Configuration reference](docs/agent-json.md) · [Developer handbook](docs/handbook/index.md)
 
 ## Install and use
