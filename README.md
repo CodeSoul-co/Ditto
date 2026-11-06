@@ -5,7 +5,7 @@
 <h1 align="center">Ditto</h1>
 
 <p align="center">
-  A lightweight Node-native Runtime graphs for composable Agent system.<br />
+  A lightweight Node Runtime graphs for composable Agent system.<br />
   Scale Workers without changing Graphs or Node Contracts.
 </p>
 
