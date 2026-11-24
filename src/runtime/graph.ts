@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { SKIPPED } from "./skipped.js";
 import type { ExecutionScope } from "./communication/transport.js";
 import type { InputOf, NodeType, OutputOf } from "../contracts/index.js";
 import type {
@@ -16,6 +17,9 @@ export interface GraphTask {
   readonly dependencies: readonly string[];
   readonly bind: (input: unknown, outputs: Readonly<Record<string, unknown>>) => unknown;
   readonly validateOutput?: (output: unknown) => void;
+  /** Repeated tasks share their logical deployment binding and may carry a completed output forward. */
+  readonly bindingId?: string;
+  readonly reuse?: (input: unknown, outputs: Readonly<Record<string, unknown>>) => { value: unknown } | undefined;
 }
 
 /** Immutable logical DAG. No Worker IDs, model configuration or host addresses. */
@@ -35,7 +39,8 @@ export class ExecutionGraph<I, O extends object = Record<never, never>> {
     const known = new Set<string>();
     const snapshot = tasks.map(task => {
       if (!task.id || known.has(task.id)) throw new Error(`Duplicate or empty graph Node ID: ${task.id}`);
-      if (typeof task.bind !== "function" || (task.validateOutput !== undefined && typeof task.validateOutput !== "function"))
+      if (typeof task.bind !== "function" || (task.validateOutput !== undefined && typeof task.validateOutput !== "function")
+        || (task.reuse !== undefined && typeof task.reuse !== "function"))
         throw new Error(`Invalid graph callbacks: ${task.id}`);
       for (const dependency of task.dependencies) if (!known.has(dependency)) throw new Error(`Unknown graph dependency: ${dependency}`);
       known.add(task.id);
@@ -92,7 +97,8 @@ export async function runGraph<I, O extends object>(
   options.signal?.throwIfAborted();
   const checkpoint = options.checkpoint;
   const graphHash = checkpoint ? stateDigest(graph.tasks.map(t => [t.id, t.node, t.dependencies, t.bind.toString(),
-    ...(t.validateOutput ? [t.validateOutput.toString()] : [])])) : "";
+    ...(t.validateOutput ? [t.validateOutput.toString()] : []), ...(t.reuse ? [t.reuse.toString()] : []),
+    ...(t.bindingId ? [t.bindingId] : [])])) : "";
   const inputHash = checkpoint ? stateDigest(input) : "";
   const restored = checkpoint?.resume ? restoreState(checkpoint.resume, `graph:${graph.id}`, checkpoint.version) : undefined;
   if (restored && (restored.graphHash !== graphHash || restored.inputHash !== inputHash))
@@ -100,9 +106,11 @@ export async function runGraph<I, O extends object>(
   if (restored?.uncertain.length) throw new UncertainGraphCheckpointError(checkpoint!.resume!);
   const outputs: Record<string, unknown> = Object.assign(Object.create(null), restored?.outputs ?? {});
   const known = new Set(graph.tasks.map(t => t.id));
+  const skipped = new Set(restored?.skipped ?? []);
+  if ([...skipped].some(id => !known.has(id) || outputs[id] !== null)) throw new Error("Graph checkpoint has an invalid skipped node");
   if (Object.keys(outputs).some(id => !known.has(id)) || graph.tasks.some(t => Object.hasOwn(outputs, t.id) && t.dependencies.some(id => !Object.hasOwn(outputs, id))))
     throw new Error("Graph checkpoint has an invalid completed dependency set");
-  for (const task of graph.tasks) if (Object.hasOwn(outputs, task.id)) task.validateOutput?.(outputs[task.id]);
+  for (const task of graph.tasks) if (Object.hasOwn(outputs, task.id) && !skipped.has(task.id)) task.validateOutput?.(outputs[task.id]);
   // Build adjacency once: O(nodes + edges), with no promise per dependency.
   const remaining = new Map<GraphTask, number>();
   const dependents = new Map<string, GraphTask[]>();
@@ -124,6 +132,9 @@ export async function runGraph<I, O extends object>(
     let cursor = 0, active = 0, failed = false;
     let saving = false, savedBoundary = "", admittedUntil = 0;
     const uncertain = new Set<string>();
+    const snapshot = () => checkpointState(`graph:${graph.id}`, checkpoint!.version, {
+      graphHash, inputHash, outputs, uncertain: [...uncertain], ...(skipped.size ? { skipped: [...skipped] } : {}),
+    });
     let failure: unknown;
     const stop = (error: unknown): void => { if (!failed) { failed = true; failure = error; } };
     const pump = (): void => {
@@ -135,8 +146,7 @@ export async function runGraph<I, O extends object>(
         const boundary = `${Object.keys(outputs).length}:${uncertain.size}`;
         if (boundary !== savedBoundary) {
           saving = true;
-          void Promise.resolve().then(() => checkpoint.save(checkpointState(`graph:${graph.id}`, checkpoint.version,
-            { graphHash, inputHash, outputs, uncertain: [...uncertain] }))).then(() => {
+          void Promise.resolve().then(() => checkpoint.save(snapshot())).then(() => {
               savedBoundary = boundary; saving = false; pump();
             }, reject);
           return;
@@ -146,8 +156,7 @@ export async function runGraph<I, O extends object>(
           for (let i = cursor; i < admittedUntil; i++) uncertain.add(ready[i]!.id);
           // Durable intent must precede dispatch, including the first wave.
           saving = true;
-          void Promise.resolve().then(() => checkpoint.save(checkpointState(`graph:${graph.id}`, checkpoint.version,
-            { graphHash, inputHash, outputs, uncertain: [...uncertain] }))).then(() => {
+          void Promise.resolve().then(() => checkpoint.save(snapshot())).then(() => {
               savedBoundary = `${Object.keys(outputs).length}:${uncertain.size}`;
               saving = false; pump();
             }, reject);
@@ -159,15 +168,25 @@ export async function runGraph<I, O extends object>(
         active++;
         void Promise.resolve().then(() => {
           options.signal?.throwIfAborted();
-          const dependencies = Object.fromEntries(task.dependencies.map(id => [id, outputs[id]]));
-          return invoke(task.node, task.bind(input, Object.freeze(dependencies)), {
+          const dependencies = Object.fromEntries(task.dependencies.map(id => [id, skipped.has(id) ? SKIPPED : outputs[id]]));
+          const previous = task.reuse?.(input, dependencies);
+          if (previous) {
+            if (previous.value === SKIPPED) return SKIPPED;
+            if (checkpoint && previous.value === undefined) throw new Error("Checkpoint Node outputs must be JSON; use null instead of undefined");
+            task.validateOutput?.(previous.value);
+            return previous.value;
+          }
+          const value = task.bind(input, Object.freeze(dependencies));
+          if (value === SKIPPED) return SKIPPED;
+          return invoke(task.node, value, {
             graphId: graph.id, runId, nodeId: task.id,
           }).then(output => {
             if (checkpoint && output === undefined) throw new Error("Checkpoint Node outputs must be JSON; use null instead of undefined");
             task.validateOutput?.(output); return output;
           });
         }).then(output => {
-          outputs[task.id] = output;
+          if (output === SKIPPED) skipped.add(task.id);
+          outputs[task.id] = output === SKIPPED ? null : output;
           uncertain.delete(task.id);
           for (const child of dependents.get(task.id)!) {
             if (Object.hasOwn(outputs, child.id)) continue;
@@ -180,7 +199,10 @@ export async function runGraph<I, O extends object>(
       // Finish only after every started node settles, including on cancellation.
       if (!active) {
         if (failed) reject(failure);
-        else resolve(Object.freeze(outputs) as O);
+        else {
+          for (const id of skipped) delete outputs[id];
+          resolve(Object.freeze(outputs) as O);
+        }
       }
     };
     pump();

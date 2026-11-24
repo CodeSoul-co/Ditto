@@ -44,6 +44,8 @@ export interface GraphCheckpointState {
   readonly graphHash: string;
   readonly inputHash: string;
   readonly outputs: Readonly<Record<string, unknown>>;
+  /** Completed without dispatch because an incoming edge was inactive. */
+  readonly skipped?: readonly string[];
   /** Persisted before dispatch; unresolved operations may have effects and cannot replay. */
   readonly uncertain: readonly string[];
 }

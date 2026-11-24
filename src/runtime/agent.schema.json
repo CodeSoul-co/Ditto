@@ -335,6 +335,33 @@
     "graph": {
       "type": "object",
       "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "const": "@input" }] },
+              "to": { "oneOf": [{ "$ref": "#/$defs/identifier" }, { "const": "@output" }] },
+              "when": { "$ref": "#/$defs/expression" }
+            },
+            "required": ["from", "to", "when"],
+            "additionalProperties": false
+          }
+        },
+        "loops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "entry": { "$ref": "#/$defs/identifier" },
+              "end": { "$ref": "#/$defs/identifier" },
+              "maxIterations": { "type": "integer", "minimum": 1 },
+              "until": { "$ref": "#/$defs/expression" }
+            },
+            "required": ["entry", "end", "maxIterations"],
+            "additionalProperties": false
+          }
+        },
         "nodes": {
           "type": "array",
           "minItems": 1,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import type { NodeType } from "../src/contracts/index.js";
-import { compileAgent, createAgent, createDitto, createRuntimeServices, loadRuntimeConfig, type AgentDefinition } from "../src/runtime/index.js";
+import { compileAgent, createAgent, createDitto, createRuntimeServices, loadRuntimeConfig, type AgentDefinition, type GraphCheckpoint } from "../src/runtime/index.js";
 import { defineWorker, type WorkerNodes } from "../src/worker/define-worker.js";
 import { createInteractionWorker } from "../src/worker/interaction/index.js";
 
@@ -15,6 +15,104 @@ const echoNode = (id = "echo", input: import("../src/contracts/common.js").JsonV
 const simple = (): AgentDefinition => ({ version: 1, id: "test", graphs: { main: { nodes: [echoNode()], output: ref("nodes.echo") } } });
 const worker = (execute: (input: unknown) => Promise<unknown> = async input => input) => defineWorker({
   type: "test", nodes: handlers(execute),
+});
+
+test("local loops reuse existing paths, support nested self loops, and retain logical Worker bindings", async () => {
+  const calls: string[] = [];
+  const graph = {
+    nodes: [echoNode("before", "before"), { ...echoNode("a", "a"), dependsOn: ["before"] },
+      { id: "call", kind: "subgraph", graph: "child", input: ref("nodes.a"), dependsOn: ["a"] },
+      { ...echoNode("after", ref("nodes.call")), dependsOn: ["call"] }],
+    output: ref("nodes.after"),
+    loops: [{ entry: "a", end: "call", maxIterations: 4, until: op("gte", ref("result"), 4) },
+      { entry: "call", end: "call", maxIterations: 2 }],
+  };
+  const source = { ...simple(), graphs: { main: graph, child: { nodes: [echoNode("work")], output: ref("nodes.work") } },
+    deployment: { bindings: { main: { before: "normal", a: "normal", after: "normal", "call/work": "counter" } } } };
+  let counter = 0;
+  const agent = await createAgent(source, { workers: {
+    normal: worker(async value => { calls.push(String(value)); return value; }),
+    counter: worker(async value => { assert.equal(value, "a"); return ++counter; }),
+  } });
+  try {
+    assert.equal(await agent.run("input"), 4);
+    assert.deepEqual(calls, ["before", "a", "a", "4"]);
+    assert.equal(counter, 4);
+    assert.deepEqual(agent.compiled.definition.graphs.main!.loops, graph.loops);
+  } finally { await agent.close(); }
+  assert.throws(() => compileAgent({ ...source, graphs: { ...source.graphs, main: { ...graph, loops: [
+    { entry: "after", end: "before", maxIterations: 2 }] } } }), /existing dependency path/);
+});
+
+test("wire conditions gate Worker and subgraph dispatch, propagate skips, and preserve successful null outputs", async () => {
+  const calls: unknown[] = [];
+  const source = { ...simple(), config: { cutoff: 2 }, graphs: {
+    main: { nodes: [echoNode("score", ref("input.score")),
+      { ...echoNode("accept", null), dependsOn: ["score"] },
+      { id: "review", kind: "subgraph", graph: "review", input: ref("input"), dependsOn: ["score"] },
+      { ...echoNode("send", "sent"), dependsOn: ["review"] }],
+      conditions: [
+        { from: "score", to: "accept", when: op("gte", ref("result"), ref("config.cutoff")) },
+        { from: "score", to: "review", when: op("lt", ref("result"), ref("config.cutoff")) },
+        { from: "@input", to: "review", when: ref("result.enabled") },
+        { from: "@input", to: "@output", when: ref("input.visible") },
+        { from: "send", to: "@output", when: ref("input.visible") },
+      ],
+      output: { accepted: { $ref: "nodes.accept", default: "skipped" }, reviewed: ref("nodes.review"),
+        sent: { $ref: "nodes.send", default: "hidden" }, score: ref("input.score") } },
+    review: { nodes: [echoNode("work", "checked")], output: "reviewed" },
+  } };
+  const agent = await createAgent(source, { workers: { echo: worker(async value => { calls.push(value); return value; }) } });
+  try {
+    assert.deepEqual(await agent.run({ score: 3, enabled: true, visible: true }),
+      { accepted: null, reviewed: null, sent: "hidden", score: 3 });
+    assert.deepEqual(calls.splice(0), [3, null]);
+    assert.deepEqual(await agent.run({ score: 1, enabled: false, visible: true }),
+      { accepted: "skipped", reviewed: null, sent: "hidden", score: 1 });
+    assert.deepEqual(calls.splice(0), [1]);
+    assert.deepEqual(await agent.run({ score: 1, enabled: true, visible: false }),
+      { accepted: "skipped", reviewed: "reviewed", sent: "hidden", score: null });
+    assert.deepEqual(calls, [1, "checked", "sent"]);
+  } finally { await agent.close(); }
+});
+
+test("skipped local loop nodes survive checkpoint resume without Worker calls or output validation", async () => {
+  const source = { ...simple(), graphs: { main: {
+    nodes: [echoNode("start"), { ...echoNode("wait", true), dependsOn: ["start"], require: { path: "ok", equals: true } }],
+    conditions: [{ from: "start", to: "wait", when: false }],
+    loops: [{ entry: "wait", end: "wait", maxIterations: 2, until: ref("result.ok") }],
+  } } };
+  const agent = await createAgent(source, { workers: { echo: worker(async value => { assert.equal(value, "go"); return value; }) } });
+  let saved: GraphCheckpoint | undefined;
+  const checkpoint = { version: "v1", save(cp: GraphCheckpoint) { saved = cp; } };
+  try {
+    const run = (resume?: GraphCheckpoint) => agent.compiled.runGraph("main", agent.runtime, "go", { checkpoint: { ...checkpoint, ...(resume && { resume }) } });
+    assert.deepEqual(await run(), { start: "go", wait: null });
+    assert.equal(saved?.state.skipped?.length, 2);
+    assert.deepEqual(await run(saved), { start: "go", wait: null });
+  } finally { await agent.close(); }
+});
+
+test("wire conditions must name a unique existing edge and evaluate to a boolean", async () => {
+  const main = simple().graphs.main!;
+  const condition = { from: "@input", to: "echo", when: ref("result") };
+  const withConditions = (conditions: typeof condition[]) => ({ ...simple(), graphs: { main: { ...main, conditions } } });
+  assert.throws(() => compileAgent(withConditions([condition, condition])), /duplicate condition/);
+  assert.throws(() => compileAgent(withConditions([{ ...condition, from: "absent" }])), /existing connection/);
+  assert.throws(() => compileAgent(withConditions([{ ...condition, when: ref("nodes.echo") }])), /reference root/);
+  const agent = await createAgent(withConditions([condition]), { workers: { echo: worker() } });
+  try { await assert.rejects(agent.run("true"), /boolean/); }
+  finally { await agent.close(); }
+});
+
+test("a named entry can start a subgraph and select a named end", async () => {
+  const source = { ...simple(), graphs: { ...simple().graphs, other: { nodes: [echoNode()], output: ref("nodes.echo") } },
+    loop: { entry: "chosen", maxIterations: 1, state: {}, steps: {
+      chosen: { graph: "other", input: 42, transitions: [{ end: "accepted" }] } },
+      output: { reason: ref("termination.reason"), value: ref("result") } } };
+  const agent = await createAgent(source, { workers: { echo: worker() } });
+  try { assert.deepEqual(await agent.run(null), { reason: "accepted", value: 42 }); }
+  finally { await agent.close(); }
 });
 
 test("JSON single main Graph, immutable configuration and host registration", async () => {
@@ -296,11 +394,11 @@ test("large canvas DAGs compile in arbitrary order without recursive dependency 
   assert.equal(compiled.graphs.main!.tasks.at(-1)!.id, "n4999");
 });
 
-test("Loop rejects nonboolean conditions, missing defaults and wrong main entry", async () => {
+test("Loop accepts named entry graphs and rejects nonboolean conditions and missing defaults", async () => {
   const source = counter();
-  assert.throws(() => compileAgent({ ...source, loop: { ...source.loop, steps: {
+  assert.doesNotThrow(() => compileAgent({ ...source, loop: { ...source.loop, steps: {
     repeat: { ...source.loop!.steps.repeat, graph: "unused" },
-  } } }), /first step must execute the main/);
+  } } }));
   assert.throws(() => compileAgent({ ...source, loop: { ...source.loop, steps: {
     repeat: { ...source.loop!.steps.repeat, transitions: [{ when: true, end: "completed" }] },
   } } }), /unconditional default/);

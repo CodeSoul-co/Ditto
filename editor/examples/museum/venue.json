@@ -1,0 +1,32 @@
+{
+  "notice": "Today's bulletin: the west entrance is closed. Use the east entrance.",
+  "prices": { "adult": 12, "child": 5 },
+  "guide": [
+    {
+      "id": "gallery",
+      "content": "The fossil gallery opens at 10:00. A family fossil trail starts at the gallery desk.",
+      "source": { "ref": "guide/fossil-gallery" }
+    },
+    {
+      "id": "access",
+      "content": "A lift beside the east entrance serves the fossil gallery on floor 2.",
+      "source": { "ref": "guide/access" }
+    }
+  ],
+  "visitors": [
+    {
+      "id": "family",
+      "topic": "fossil",
+      "question": "Two adults and one child want to visit the fossil gallery. Give our total ticket price, opening time and entrance.",
+      "adults": 2,
+      "children": 1
+    },
+    {
+      "id": "group",
+      "topic": "fossil",
+      "question": "One adult and four children need step-free access to the fossil gallery. Where do we go and what is the total ticket price?",
+      "adults": 1,
+      "children": 4
+    }
+  ]
+}

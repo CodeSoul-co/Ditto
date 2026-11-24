@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "id": "library-returns",
+  "config": {
+    "titles": ["小王子", "城南旧事", "昆虫记", "山海经", "银河系漫游指南"]
+  },
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "registerReturns",
+          "type": "MEMORY.WRITE",
+          "input": {
+            "memories": {
+              "$map": {
+                "items": { "$ref": "input.titles", "default": { "$ref": "config.titles" } },
+                "value": {
+                  "content": { "$ref": "item" },
+                  "metadata": { "namespace": { "$ref": "input.batch" }, "kind": "returned" }
+                }
+              }
+            }
+          },
+          "require": { "path": "status", "equals": "success" }
+        },
+        {
+          "id": "pickBook",
+          "type": "MEMORY.QUERY",
+          "dependsOn": ["registerReturns"],
+          "input": { "filter": { "namespace": { "$ref": "input.batch" }, "kind": "returned" }, "limit": 1 },
+          "require": { "path": "status", "equals": "success" }
+        },
+        {
+          "id": "shelveBook",
+          "kind": "subgraph",
+          "graph": "shelving",
+          "dependsOn": ["pickBook"],
+          "input": { "$ref": "nodes.pickBook.output" }
+        },
+        {
+          "id": "checkCart",
+          "type": "MEMORY.QUERY",
+          "dependsOn": ["shelveBook"],
+          "input": { "filter": { "namespace": { "$ref": "input.batch" }, "kind": "returned" }, "limit": 1 },
+          "require": { "path": "status", "equals": "success" }
+        },
+        {
+          "id": "shelfReport",
+          "type": "MEMORY.QUERY",
+          "dependsOn": ["checkCart"],
+          "input": { "filter": { "namespace": { "$ref": "input.batch" }, "kind": "shelved" } },
+          "require": { "path": "status", "equals": "success" }
+        },
+        {
+          "id": "carryOver",
+          "type": "MEMORY.QUERY",
+          "dependsOn": ["checkCart"],
+          "input": { "filter": { "namespace": { "$ref": "input.batch" }, "kind": "returned" }, "limit": { "$op": "length", "args": [{ "$ref": "input.titles", "default": { "$ref": "config.titles" } }] } },
+          "require": { "path": "status", "equals": "success" }
+        }
+      ],
+      "conditions": [
+        { "from": "checkCart", "to": "carryOver", "when": { "$op": "gt", "args": [{ "$op": "length", "args": [{ "$ref": "result.output.items" }] }, 0] } }
+      ],
+      "loops": [
+        { "entry": "pickBook", "end": "checkCart", "maxIterations": 4, "until": { "$op": "isEmpty", "args": [{ "$ref": "result.output.items" }] } },
+        { "entry": "pickBook", "end": "shelveBook", "maxIterations": 2, "until": { "$ref": "result.lastBook" } }
+      ],
+      "output": {
+        "received": { "$op": "length", "args": [{ "$ref": "nodes.registerReturns.output" }] },
+        "shelved": { "$map": { "items": { "$ref": "nodes.shelfReport.output.items" }, "value": { "$ref": "item.content" } } },
+        "remaining": { "$map": { "items": { "$ref": "nodes.carryOver.output.items", "default": [] }, "value": { "$ref": "item.content" } } },
+        "complete": { "$op": "isEmpty", "args": [{ "$ref": "nodes.checkCart.output.items" }] }
+      }
+    },
+    "shelving": {
+      "nodes": [
+        {
+          "id": "markShelved",
+          "type": "MEMORY.UPDATE",
+          "input": {
+            "memories": {
+              "$map": {
+                "items": { "$ref": "input.items" },
+                "value": {
+                  "id": { "$ref": "item.id" },
+                  "metadata": { "namespace": { "$ref": "item.metadata.namespace" }, "kind": "shelved" }
+                }
+              }
+            }
+          },
+          "require": { "path": "status", "equals": "success" }
+        },
+        {
+          "id": "writeReceipt",
+          "type": "MEMORY.WRITE",
+          "dependsOn": ["markShelved"],
+          "input": {
+            "memories": {
+              "$map": {
+                "items": { "$ref": "nodes.markShelved.output" },
+                "value": {
+                  "content": { "$ref": "item.content" },
+                  "metadata": {
+                    "namespace": { "$ref": "item.metadata.namespace" },
+                    "kind": "receipt",
+                    "bookId": { "$ref": "item.id" }
+                  }
+                }
+              }
+            }
+          },
+          "require": { "path": "status", "equals": "success" }
+        }
+      ],
+      "output": {
+        "lastBook": { "$op": "eq", "args": [{ "$ref": "input.nextCursor", "default": null }, null] },
+        "shelved": { "$ref": "nodes.markShelved.output" },
+        "receipts": { "$ref": "nodes.writeReceipt.output" }
+      }
+    }
+  }
+}

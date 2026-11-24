@@ -216,6 +216,8 @@ export class DittoRuntime implements RuntimeClient {
   #run<I, O extends object>(plan: ExecutionGraph<I, O>, input: I, options: RunOptions): Promise<O> {
     const bindings = new Map(Object.entries(options.workers ?? {}));
     const tasks = new Map(plan.tasks.map(task => [task.id, task]));
+    for (const task of plan.tasks) if (task.bindingId && !bindings.has(task.id) && bindings.has(task.bindingId))
+      bindings.set(task.id, bindings.get(task.bindingId)!);
     for (const [taskId, workerId] of bindings) {
       const task = tasks.get(taskId);
       if (!task) throw new Error(`Unknown graph Node binding: ${taskId}`);

@@ -166,6 +166,22 @@ A Graph contains a nonempty `nodes` array and an optional `output` expression. W
 
 For NodeResult-returning operations, add `"require": { "path": "status", "equals": "success" }`. For delivery, use `"accepted"`. Requirements are checked immediately after execution, before dependents are released. A failure stops downstream scheduling; already-started parallel operations settle and external effects are not rolled back. Tool failures may instead be passed to OBSERVE for model feedback by omitting the requirement intentionally.
 
+### Conditions on connections
+
+Connections are unconditional by default. To make an existing wire conditional, double-click it in the editor or add a rule to the Graph's `conditions` array. This example runs `carryOver` only when the previous query found more returned books.
+
+```json
+{
+  "conditions": [{
+    "from": "checkCart",
+    "to": "carryOver",
+    "when": { "$op": "gt", "args": [{ "$op": "length", "args": [{ "$ref": "result.output.items" }] }, 0] }
+  }]
+}
+```
+
+`from` and `to` identify an existing dependency or data binding. Use `@input` for the Graph input and `@output` for the Graph output. The boolean expression can read `result` (the source value), `input` (this Graph's input), and `config`. All conditions entering a node must pass. When one is false, the runtime skips that node or subgraph and its dependents. Other branches continue. A Graph output reference to a skipped node, or one whose own wire condition is false, uses its `default` expression or returns `null`. A Worker that actually returned `null` retains that value. Remove the rule to restore an unconditional wire.
+
 ### Subgraphs
 
 ```json
@@ -215,7 +231,7 @@ Register shared Node implementations and Worker instances once. Nodes in multipl
 }
 ```
 
-This is the `loop` field; the referenced Graphs must be defined. The entry step must execute `main`. Execution order is fixed:
+Set `loop.entry` to the first step you want to run. Its `graph` can name any defined Graph. Set a transition's `end` to the termination reason you want to expose.
 
 1. Evaluate `state` from `input` and `config`; it must be an object.
 2. If optional `while` evaluates to false, stop before executing a Graph. This allows zero iterations.
@@ -226,6 +242,18 @@ This is the `loop` field; the referenced Graphs must be defined. The entry step 
 
 Conditions must return booleans. `maxIterations` counts outer Graph executions, including repeated stages; expanded Subgraph leaves are part of that same DAG, not extra iterations. Exhaustion throws instead of reporting success. Track business actions separately in state. Use a host cancellation signal for wall-clock limits.
 
+### Repeat nodes along an existing path
+
+In the development version, a Graph can declare its own `loops`. This example repeats the existing path from `prepare` through `review` up to three times and stops early if the end node returns `{"accepted":true}`.
+
+```json
+[
+  { "entry": "prepare", "end": "review", "maxIterations": 3, "until": { "$ref": "result.accepted" } }
+]
+```
+
+Set the Graph's `loops` field to this array. Use the same ID for both endpoints to repeat one node or one subgraph call. All nodes on dependency paths between the endpoints participate. Each round evaluates their existing input mappings. Inputs from outside the range stay available. Downstream nodes receive the final round's values. Omit `until` for an exact count, or use a boolean expression over `result` and `config` to stop early. Local ranges can be nested or disjoint. The compiler's expanded-node limit also applies to repetitions.
+
 ## 4. Expressions
 
 Objects and arrays recursively bind their values. Use these reserved forms:
@@ -233,7 +261,7 @@ Objects and arrays recursively bind their values. Use these reserved forms:
 | Form | Semantics |
 | --- | --- |
 | `{"$ref":"state.count"}` | Own-property lookup, dot-separated path; numeric array segments supported |
-| `{"$ref":"input.optional","default":[]}` | Fallback only when the path is missing, not when it is null |
+| `{"$ref":"input.optional","default":[]}` | Use the fallback for a missing path or skipped source. An explicit null is preserved. |
 | `{"$literal":{"$ref":"literal text"}}` | Preserve data that resembles an expression |
 | `{"$op":"add","args":[1,2]}` | Checked operation; no implicit numeric coercion |
 | `{"$map":{"items":{"$ref":"input.items"},"value":{"$ref":"item.text"}}}` | Map with scoped `item` and `index` |

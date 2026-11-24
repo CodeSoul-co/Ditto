@@ -329,7 +329,9 @@
     "example:json:template": "npm run build && node examples/json-agent/quickstart.ts \"Hello Ditto\" agent_example.json",
     "check:package:json-agents": "npm run build && node --env-file=.env scripts/check-json-agent-package.ts",
     "check:package:agent-recovery": "npm run build && node scripts/check-agent-recovery-package.ts",
-    "example:agent:recovery": "npm run build && node docs/worker-api/examples/runtime/configured-recovery.ts"
+    "example:agent:recovery": "npm run build && node docs/worker-api/examples/runtime/configured-recovery.ts",
+    "editor": "node --env-file-if-exists=.env editor/server.mjs",
+    "test:editor": "node --test editor/assistant.test.mjs"
   },
   "engines": {
     "node": ">=24.0.0",
@@ -338,6 +340,7 @@
   "devDependencies": {
     "@types/node": "^24.13.3",
     "ajv": "^8.20.0",
+    "markdown-it": "^14.3.3",
     "typescript": "^7.0.2"
   },
   "dependencies": {

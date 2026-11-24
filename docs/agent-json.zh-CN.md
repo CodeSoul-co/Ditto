@@ -166,6 +166,22 @@ Graph 包含非空 `nodes` 数组和可选 `output` 表达式。省略 `output` 
 
 对于返回 NodeResult 的操作，可以设置 `"require": { "path": "status", "equals": "success" }`；交付回执则检查 `"accepted"`。校验在节点完成后、下游启动前执行。失败会停止后续调度；已开始的并行操作会等待结束，外部效果不会自动回滚。如果需要模型观察工具失败，可以有意省略工具节点的成功要求，将实际结果交给 OBSERVE。
 
+### 连线条件
+
+连线默认无条件。双击画布上的已有连线，即可设置条件，也可以直接编辑该 Graph 的 `conditions` 数组。下面这条规则让 `carryOver` 只在还书车里还有书时生成交接清单。
+
+```json
+{
+  "conditions": [{
+    "from": "checkCart",
+    "to": "carryOver",
+    "when": { "$op": "gt", "args": [{ "$op": "length", "args": [{ "$ref": "result.output.items" }] }, 0] }
+  }]
+}
+```
+
+`from` 和 `to` 填写已有依赖或数据连线的两端。图输入用 `@input`，图输出用 `@output`。条件表达式须返回布尔值，可以读取连线起点的值 `result`、当前图的输入 `input` 和配置 `config`。一个节点的所有入边条件都满足时才执行。条件为假时，运行时会跳过目标节点或子图，以及依赖它的后续节点。其他分支继续执行。图输出引用了跳过的节点，或输出线自身的条件为假时，该引用会使用自己的 `default`，未设置时返回 `null`。Worker 实际返回的 `null` 会保留。删除规则即可恢复无条件连线。
+
 ### Subgraph
 
 ```json
@@ -215,7 +231,7 @@ Graph 包含非空 `nodes` 数组和可选 `output` 表达式。省略 `output` 
 }
 ```
 
-这是 `loop` 字段的示例，需要另行定义引用的 Graph。入口步骤必须执行 `main`。执行顺序固定：
+通过 `loop.entry` 指定第一个运行的步骤。该步骤的 `graph` 可以引用任意已定义的图。转移中的 `end` 用于指定结束原因。
 
 1. 使用 `input` 和 `config` 计算初始 `state`，结果必须为对象。
 2. 可选 `while` 条件为 false 时，在执行 Graph 前结束，支持零次循环。
@@ -226,6 +242,18 @@ Graph 包含非空 `nodes` 数组和可选 `output` 表达式。省略 `output` 
 
 条件必须返回布尔值。`maxIterations` 统计外层 Graph 执行次数，重复阶段也计数；Subgraph 叶子已展开到同一张 DAG，不额外计次。超限抛错，不冒充完成。业务动作次数在状态中单独计数，墙钟超时通过宿主取消信号限制。
 
+### 沿已有路径循环执行节点
+
+开发版支持在图的 `loops` 字段中声明局部循环。以下配置让已有的 `prepare` 到 `review` 路径最多执行三次。如果结束节点返回 `{"accepted":true}`，则提前退出。
+
+```json
+[
+  { "entry": "prepare", "end": "review", "maxIterations": 3, "until": { "$ref": "result.accepted" } }
+]
+```
+
+入口和结束使用相同 ID 时，只重复这一个节点或子图调用。两端之间所有依赖路径上的节点都会参与，每一轮沿用原有输入映射。循环外的下游节点读取最后一轮的输出。省略 `until` 可按固定次数执行，也可用 `result` 和 `config` 编写布尔停止条件。多个局部循环可以嵌套或彼此独立。重复次数也计入编译器的展开节点上限。
+
 ## 4. 表达式
 
 普通对象和数组递归绑定字段；保留以下表达式形式：
@@ -233,7 +261,7 @@ Graph 包含非空 `nodes` 数组和可选 `output` 表达式。省略 `output` 
 | 形式 | 语义 |
 | --- | --- |
 | `{"$ref":"state.count"}` | 点分隔的自有属性路径，支持数字数组下标 |
-| `{"$ref":"input.optional","default":[]}` | 仅缺失时使用默认值，null 不视为缺失 |
+| `{"$ref":"input.optional","default":[]}` | 路径缺失或来源被跳过时使用默认值，显式返回的 null 会保留 |
 | `{"$literal":{"$ref":"literal text"}}` | 保留与表达式相似的原始数据 |
 | `{"$op":"add","args":[1,2]}` | 有类型检查的操作，不隐式转换数字 |
 | `{"$map":{"items":{"$ref":"input.items"},"value":{"$ref":"item.text"}}}` | 使用局部 `item`、`index` 映射数组 |

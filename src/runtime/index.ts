@@ -1,7 +1,7 @@
 export { createDitto, DittoRuntime } from "./runtime.js";
 export { compileAgent, createAgent, validateAgent } from "./agent.js";
 export type {
-  AgentDefinition, AgentGraph, AgentNode, AgentSubgraph, AgentExpression, AgentLoop,
+  AgentDefinition, AgentGraph, AgentGraphLoop, AgentNode, AgentSubgraph, AgentExpression, AgentLoop,
   AgentLoopStep, AgentTransition, AgentDeployment, AgentWorker, CreateAgentOptions,
   CompiledAgent, ConfiguredAgent,
 } from "./agent.js";
@@ -47,4 +47,5 @@ export { AgentPausedError } from "./agent-execution.js";
 export type { AgentRunOptions, AgentCheckpoint, AgentCheckpointState, AgentCheckpointOptions, AgentBoundary, AgentBoundaryDecision } from "./agent-execution.js";
 export { AgentValidationError } from "./agent-diagnostics.js";
 export type { AgentDiagnostic, AgentNodeSource } from "./agent-diagnostics.js";
+export type { AgentEdgeCondition } from "./agent-edges.js";
 export { agentSchema } from "./agent-schema.js";

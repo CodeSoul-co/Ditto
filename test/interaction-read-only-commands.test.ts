@@ -161,7 +161,7 @@ test("real POSIX read-only commands flow through Observation into Context", { sk
   try {
     let context: Context = { items: [] };
     const calls = [
-      { id: "grep-live", name: "grep", arguments: { pattern: "A lightweight Node-native", paths: ["README.md"], fixedStrings: true } },
+      { id: "grep-live", name: "grep", arguments: { pattern: "bravo", paths: [fixturePath], fixedStrings: true } },
       { id: "ls-live", name: "ls", arguments: { path: "src" } },
       { id: "cat-live", name: "cat", arguments: { path: fixturePath } },
       { id: "find-live", name: "find", arguments: { path: "src", name: "index.ts", type: "file", maxDepth: 4 } },

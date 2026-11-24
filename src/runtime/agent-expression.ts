@@ -1,5 +1,6 @@
 import type { JsonValue } from "../contracts/common.js";
 import { isDeepStrictEqual } from "node:util";
+import { SKIPPED } from "./skipped.js";
 import { AgentValidationError, pointer } from "./agent-diagnostics.js";
 
 export type Expression = (scope: Readonly<Record<string, unknown>>) => unknown;
@@ -53,6 +54,7 @@ export function pathParts(value: unknown, where: string): string[] {
 }
 export function lookup(value: unknown, parts: readonly string[]): unknown {
   for (const part of parts) {
+    if (value === SKIPPED) return SKIPPED;
     if (!value || typeof value !== "object" || !Object.hasOwn(value, part)) return undefined;
     value = (value as Record<string, unknown>)[part];
   }
@@ -93,6 +95,7 @@ export function expression(value: unknown, roots: readonly string[], where: stri
     const fallback = Object.hasOwn(object, "default") ? expression(object.default, roots, pointer(where, "default"), dependencies, references) : undefined;
     return scope => {
       const found = lookup(scope, parts);
+      if (found === SKIPPED) return fallback ? fallback(scope) : null;
       if (found !== undefined) return structuredClone(found);
       if (fallback) return fallback(scope);
       return fail(where, `missing reference ${String(object.$ref)}`);

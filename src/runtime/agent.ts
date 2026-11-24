@@ -10,10 +10,13 @@
 import type { JsonValue, NodeType } from "../contracts/index.js";
 import { isDeepStrictEqual } from "node:util";
 import type { WorkerDefinition } from "../worker/define-worker.js";
-import { ExecutionGraph } from "./graph.js";
+import { ExecutionGraph, type GraphTask } from "./graph.js";
+import { localLoops, orderLoopTasks, repeatRange, type LocalLoopPlan } from "./agent-local-loop.js";
 import type { LoopPlanDefinition } from "./graph-plan.js";
 import { createDitto, type DittoOptions, type DittoRuntime, type RunOptions, type WorkerRegistrationOptions } from "./runtime.js";
 import { AgentValidationError, pointer, type AgentDiagnostic, type AgentNodeSource } from "./agent-diagnostics.js";
+import { edgeGates, type AgentEdgeCondition, type EdgeGate } from "./agent-edges.js";
+import { SKIPPED } from "./skipped.js";
 import { stateDigest } from "./checkpoint.js";
 import { agentPlan, executeAgent, type AgentProgram, type AgentRunOptions } from "./agent-execution.js";
 import { boolean, expression, fail, fields, lookup, name, pathParts, positive, record, snapshot, type Expression } from "./agent-expression.js";
@@ -38,6 +41,15 @@ export interface AgentSubgraph {
 export interface AgentGraph {
   readonly nodes: readonly (AgentNode | AgentSubgraph)[];
   readonly output?: AgentExpression;
+  readonly loops?: readonly AgentGraphLoop[];
+  readonly conditions?: readonly AgentEdgeCondition[];
+}
+export interface AgentGraphLoop {
+  readonly entry: string;
+  readonly end: string;
+  readonly maxIterations: number;
+  /** Checked after the end node. The last round's outputs are passed downstream. */
+  readonly until?: AgentExpression;
 }
 export interface AgentTransition {
   readonly when?: AgentExpression;
@@ -104,16 +116,12 @@ export interface ConfiguredAgent {
 
 type Outputs = Readonly<Record<string, unknown>>;
 type Resolver = (input: unknown, outputs: Outputs) => unknown;
-interface Projection { readonly leaves: readonly string[]; readonly requiresInput: boolean; readonly resolve: Resolver }
-interface FlatNode {
-  id: string; type: NodeType; dependencies: readonly string[]; bind: Resolver;
-  validate?: (output: unknown) => void;
-}
+interface Projection { readonly leaves: readonly string[]; readonly requiresInput: boolean; readonly maySkip: boolean; readonly resolve: Resolver }
 interface ParsedNode {
   path: string; id: string; type?: string; child?: string; dependencies: readonly string[]; input: Expression;
   validate?: (output: unknown) => void;
 }
-interface ParsedGraph { nodes: readonly ParsedNode[]; output: Expression; outputReferences: ReadonlySet<string> }
+interface ParsedGraph { nodes: readonly ParsedNode[]; output: Expression; outputReferences: ReadonlySet<string>; loops: LocalLoopPlan[]; gates: Map<string, Map<string, EdgeGate>> }
 
 /** Resolve only the projected fields, once per expression evaluation. */
 function lazyScope(entries: readonly (readonly [string, () => unknown])[]): Record<string, unknown> {
@@ -174,9 +182,10 @@ function compileDefinition(source: unknown): CompiledAgent {
     const graphPath = pointer("/graphs", graphId);
     name(graphId, graphPath);
     const body = record(raw, graphPath);
-    fields(body, ["nodes", "output"], graphPath);
+    fields(body, ["nodes", "output", "loops", "conditions"], graphPath);
     if (!Array.isArray(body.nodes) || !body.nodes.length) fail(`${graphPath}/nodes`, "nodes must be a nonempty array");
     const nodes = new Map<string, ParsedNode>();
+    const inputEdges = new Set<string>();
     for (const [index, rawNode] of body.nodes.entries()) {
       const where = `${graphPath}/nodes/${index}`;
       const node = record(rawNode, where), nodeId = name(node.id, `${where}/id`);
@@ -188,7 +197,9 @@ function compileDefinition(source: unknown): CompiledAgent {
       const deps = dependencies.map((d, i) => name(d, `${where}/dependsOn/${i}`));
       if (new Set(deps).size !== deps.length) fail(`${where}/dependsOn`, "duplicate dependency");
       if (!Object.hasOwn(node, "input")) fail(`${where}/input`, "input is required");
-      const input = expr(node.input, ["input", "nodes"], `${where}/input`, deps);
+      const references = new Set<string>();
+      const input = expr(node.input, ["input", "nodes"], `${where}/input`, deps, references);
+      if (references.has("input")) inputEdges.add(nodeId);
       if (node.kind === "subgraph") {
         if (node.type !== undefined || node.require !== undefined) fail(where, "subgraphs accept graph, not type or require");
         const child = name(node.graph, `${where}/graph`);
@@ -229,8 +240,14 @@ function compileDefinition(source: unknown): CompiledAgent {
     const outputReferences = new Set<string>(hasOutput ? [] : ["nodes"]);
     const output = hasOutput
       ? expr(body.output, ["input", "nodes"], `${graphPath}/output`, [...nodes.keys()], outputReferences)
-      : (scope: Outputs) => ({ ...(scope.nodes as Outputs) });
-    parsed.set(graphId, { nodes: sorted, output, outputReferences });
+      : (scope: Outputs) => Object.fromEntries(Object.entries(scope.nodes as Outputs).map(([id, value]) => [id, value === SKIPPED ? null : value]));
+    const loops = localLoops(body.loops, sorted, graphPath + "/loops", (value, path) => expr(value, ["result"], path));
+    const gates = edgeGates(body.conditions, graphPath + "/conditions", (from, to) => {
+      if (to === "@output") return from === "@input" ? outputReferences.has("input")
+        : nodes.has(from) && (outputReferences.has("nodes") || outputReferences.has("nodes." + from));
+      return from === "@input" ? inputEdges.has(to) : nodes.get(to)?.dependencies.includes(from) === true;
+    }, (value, path) => expr(value, ["input", "result"], path));
+    parsed.set(graphId, { nodes: sorted, output, outputReferences, loops, gates });
   }
 
   const graphs: Record<string, ExecutionGraph<unknown, Record<string, unknown>>> = {};
@@ -238,9 +255,9 @@ function compileDefinition(source: unknown): CompiledAgent {
   const projections = new Map<string, Resolver>();
   let totalLeaves = 0;
   for (const graphId of parsed.keys()) {
-    const flat: FlatNode[] = [];
+    const flat: GraphTask[] = [];
     const sources: Record<string, AgentNodeSource> = {};
-    function expand(key: string, prefix: string, getInput: Resolver, inherited: readonly string[], stack: readonly string[]): Projection {
+    function expand(key: string, prefix: string, getInput: Resolver, inherited: readonly string[], stack: readonly string[], conditionalInput = false): Projection {
       if (stack.includes(key) || stack.length >= 32) fail(pointer("/graphs", key), "recursive or excessively nested subgraph", "CYCLIC_GRAPH");
       const body = parsed.get(key)!, logical = new Map<string, Projection>();
       const start = flat.length;
@@ -249,37 +266,62 @@ function compileDefinition(source: unknown): CompiledAgent {
         const dependencies = [...new Set([...inherited, ...node.dependencies.flatMap(d => logical.get(d)!.leaves)])];
         // Capture only declared dependencies; later siblings never enter this scope.
         const upstream = node.dependencies.map(d => [d, logical.get(d)!.resolve] as const);
-        const bind: Resolver = (input, outputs) => node.input({
-          input: getInput(input, outputs),
-          nodes: Object.fromEntries(upstream.map(([key, resolve]) => [key, resolve(input, outputs)])),
-        });
+        const gates = body.gates.get(node.id);
+        const maySkip = conditionalInput || !!gates || node.dependencies.some(id => logical.get(id)!.maySkip);
+        const bind: Resolver = (input, outputs) => {
+          const graphInput = getInput(input, outputs);
+          if (graphInput === SKIPPED) return SKIPPED;
+          const values = Object.fromEntries(upstream.map(([key, resolve]) => [key, resolve(input, outputs)]));
+          if (maySkip && Object.values(values).includes(SKIPPED)) return SKIPPED;
+          if (gates) for (const [from, passes] of gates) if (!passes(graphInput, from === "@input" ? graphInput : values[from])) return SKIPPED;
+          return node.input({ input: graphInput, nodes: values });
+        };
         let projected: Projection;
-        if (node.child) projected = expand(node.child, `${expandedId}/`, bind, dependencies, [...stack, key]);
+        if (node.child) projected = expand(node.child, `${expandedId}/`, bind, dependencies, [...stack, key], maySkip);
         else {
           if (++totalLeaves > 20_000) fail(pointer("/graphs", graphId), "expanded node limit exceeded", "LIMIT_EXCEEDED");
           sources[expandedId] = Object.freeze({ graphId: key, nodeId: node.id, path: node.path, invocationPath: Object.freeze(expandedId.split("/")) });
-          flat.push({ id: expandedId, type: node.type as NodeType, dependencies, bind,
-            ...(node.validate ? { validate: node.validate } : {}) });
-          projected = { leaves: [expandedId], requiresInput: false, resolve: (_input, outputs) => outputs[expandedId] };
+          flat.push({ id: expandedId, node: node.type as NodeType, dependencies, bind,
+            ...(node.validate ? { validateOutput: node.validate } : {}) });
+          projected = { leaves: [expandedId], requiresInput: false, maySkip, resolve: (_input, outputs) => Object.hasOwn(outputs, expandedId) ? outputs[expandedId] : SKIPPED };
         }
         logical.set(node.id, projected);
       }
       const entries = [...logical], refs = body.outputReferences;
-      const requiresInput = refs.has("input") || entries.some(([key, p]) => p.requiresInput && (refs.has("nodes") || refs.has(`nodes.${key}`)));
+      const outputGates = body.gates.get("@output");
+      const requiresInput = conditionalInput || !!outputGates || refs.has("input") || entries.some(([key, p]) => p.requiresInput && (refs.has("nodes") || refs.has(`nodes.${key}`)));
       // Own leaves already impose completion barriers. Ancestors are needed only to project input-derived outputs.
       const leaves = flat.slice(start).map(node => node.id);
-      return { leaves: requiresInput ? [...new Set([...inherited, ...leaves])] : leaves, requiresInput,
-        resolve: (input, outputs) => body.output(lazyScope([
-          ["input", () => getInput(input, outputs)],
-          ["nodes", () => lazyScope(entries.map(([key, p]) => [key, () => p.resolve(input, outputs)] as const))],
-        ])),
+      if (body.loops.length) {
+        let tasks = flat.splice(start).map(task => ({ ...task, owner: task.id.slice(prefix.length).split(/[/#]/, 1)[0]! }));
+        for (const loop of body.loops) {
+          tasks = repeatRange(tasks, loop, stack.length, logical.get(loop.end)!, extra => {
+            totalLeaves += extra;
+            if (totalLeaves > 20_000) fail(loop.path, "expanded node limit exceeded", "LIMIT_EXCEEDED");
+          });
+        }
+        for (const task of tasks) {
+          flat.push(task);
+          if (task.bindingId && task.id !== task.bindingId) sources[task.id] = sources[task.bindingId]!;
+        }
+      }
+      return { leaves: requiresInput ? [...new Set([...inherited, ...leaves])] : leaves, requiresInput, maySkip: conditionalInput,
+        resolve: (input, outputs) => {
+          const graphInput = lazyScope([["value", () => getInput(input, outputs)]]);
+          if (conditionalInput && graphInput.value === SKIPPED) return SKIPPED;
+          const projectEdge = (from: string, value: unknown) => {
+            const passes = outputGates?.get(from);
+            return value === SKIPPED || (passes && !passes(graphInput.value, value)) ? SKIPPED : value;
+          };
+          return body.output(lazyScope([
+            ["input", () => projectEdge("@input", graphInput.value)],
+            ["nodes", () => lazyScope(entries.map(([key, p]) => [key, () => projectEdge(key, p.resolve(input, outputs))] as const))],
+          ]));
+        },
       };
     }
     const projection = expand(graphId, "", input => input, [], []);
-    const plan = ExecutionGraph.fromTasks<unknown>(graphId, flat.map(node => ({
-      id: node.id, node: node.type, dependencies: node.dependencies, bind: node.bind,
-      ...(node.validate ? { validateOutput: node.validate } : {}),
-    })));
+    const plan = ExecutionGraph.fromTasks<unknown>(graphId, flat.some(task => task.bindingId) ? orderLoopTasks(flat) : flat);
     graphs[graphId] = plan;
     sourceMap[graphId] = Object.freeze(sources);
     projections.set(graphId, projection.resolve);
@@ -333,7 +375,6 @@ function compileDefinition(source: unknown): CompiledAgent {
       steps.set(key, { graph: target, input, assign, transitions });
     }
     if (!steps.has(entry)) fail("/loop/entry", "unknown step");
-    if (steps.get(entry)!.graph !== "main") fail("/loop/entry", "first step must execute the main Graph");
     const output = loop.output === undefined ? (scope: Readonly<Record<string, unknown>>) => scope.state
       : expr(loop.output, ["input", "state", "result", "termination"], "/loop/output");
     const getStep = (key: string) => {
@@ -428,7 +469,7 @@ function preflight(graphs: CompiledAgent["graphs"], workers: readonly { id: stri
   for (const [key, graph] of Object.entries(graphs)) {
     const mapping = bindings[key] ?? {};
     for (const task of graph.tasks) {
-      const selected = mapping[task.id];
+      const selected = mapping[task.id] ?? (task.bindingId ? mapping[task.bindingId] : undefined);
       const available = providers.get(task.node);
       if (!available || (selected !== undefined && !available.has(selected)))
         fail(pointer(pointer("/deployment/bindings", key), task.id), `no registered Worker exposes ${task.node}${selected === undefined ? "" : ` at ${selected}`}`, "WORKER_BINDING");

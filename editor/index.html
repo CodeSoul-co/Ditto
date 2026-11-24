@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title data-text="title">Ditto · Agent Editor</title>
+    <link rel="icon" href="/logo_project.png" />
+    <link rel="stylesheet" href="/editor.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand"><img class="project-logo" src="/logo_project.png" alt="" />Ditto</div>
+      <span class="slash">/</span>
+      <button
+        id="canvases"
+        class="file"
+        aria-haspopup="dialog"
+        aria-controls="canvas-library"
+        data-title="canvasHistory"
+        data-aria="canvasHistory"
+        disabled
+      >
+        <i data-icon="file"></i><span id="filename">agent.json</span><i data-icon="chevron"></i>
+      </button>
+      <div class="actions">
+        <button id="language" type="button" lang="zh-CN" aria-label="切换到中文">中文</button>
+        <button id="open" aria-haspopup="dialog" aria-controls="import-dialog" disabled>
+          <i data-icon="folder"></i><span data-text="importJson">Import JSON</span></button
+        ><button id="save" class="primary" data-aria="save" data-title="save" aria-label="Save JSON">
+          <i data-icon="download"></i><span data-text="save">Save JSON</span>
+        </button>
+      </div>
+    </header>
+    <main>
+      <section class="canvas" data-aria="canvas" aria-label="Graph canvas">
+        <div class="canvas-heading">
+          <div class="graph-label">
+            <i data-icon="flow"></i> <span data-text="execution">Execution graph</span>
+          </div>
+          <div class="graph-select-row">
+            <div class="graph-name" id="graphs" data-label="selectGraph" aria-label="Select graph"></div>
+            <button
+              id="edit-graph"
+              data-title="editGraph"
+              title="Edit graph"
+              data-aria="editGraph"
+              aria-label="Edit graph"
+            >
+              <i data-icon="edit"></i>
+            </button>
+          </div>
+          <div class="meta" id="stats"></div>
+          <div class="structure-actions">
+            <button id="add-subgraph" data-title="createSubgraph" title="Create subgraph">
+              <i data-icon="stack"></i><span data-text="subgraph">Subgraph</span>
+            </button>
+            <button id="open-loop" data-title="editLoop" title="Configure loop">
+              <i data-icon="loop"></i><span>Loop</span>
+            </button>
+            <button id="repeat-range" data-title="loopRange">
+              <i data-icon="loop"></i><span data-text="repeatNodes">Repeat nodes</span>
+            </button>
+          </div>
+        </div>
+        <div class="canvas-actions">
+          <button id="add"><i data-icon="plus"></i><span data-text="node">Node</span></button>
+          <button
+            id="open-sidebar"
+            aria-controls="sidebar"
+            data-aria="openPanel"
+            aria-label="Open sidebar"
+            data-title="openPanel"
+            title="Open sidebar"
+            hidden
+          >
+            <i data-icon="panel"></i>
+          </button>
+        </div>
+        <div id="viewport" tabindex="0" data-aria="canvas" aria-haspopup="menu">
+          <div id="world">
+            <svg id="lines"></svg>
+            <div id="cards"></div>
+          </div>
+          <div id="empty-canvas" hidden>
+            <h2 data-text="emptyCanvas">Empty canvas</h2>
+            <button id="first-node">
+              <i data-icon="plus"></i><span data-text="firstNode">Add the first node</span>
+            </button>
+          </div>
+        </div>
+        <section id="loop-map" hidden data-aria="loopFlow">
+          <div class="loop-map-head">
+            <button id="loop-expand" aria-controls="loop-track range-legend" aria-expanded="true">
+              <i data-icon="loop"></i> <strong data-text="loopFlow">Loop flow</strong
+              ><i data-icon="chevron"></i>
+            </button>
+            <small id="loop-limit"></small>
+          </div>
+          <div id="loop-while"></div>
+          <div id="loop-track"></div>
+          <div id="range-legend"></div>
+        </section>
+        <div class="canvas-foot">
+          <div class="tools">
+            <button id="undo" data-title="undo" title="Undo" data-aria="undo" aria-label="Undo">
+              <i data-icon="undo"></i></button
+            ><span></span
+            ><button id="minus" data-aria="smaller" aria-label="Zoom out"><i data-icon="minus"></i></button
+            ><output id="zoom">100%</output
+            ><button id="plus" data-aria="larger" aria-label="Zoom in"><i data-icon="plus"></i></button
+            ><span></span
+            ><button
+              id="fit"
+              data-title="fit"
+              title="Fit to canvas"
+              data-aria="fit"
+              aria-label="Fit to canvas"
+            >
+              <i data-icon="fit"></i>
+            </button>
+          </div>
+          <span class="hint"
+            ><span data-text="hint"
+              >Drag ports to connect · Double-click a wire to set a condition</span
+            ></span
+          >
+        </div>
+      </section>
+      <aside id="sidebar" data-aria="sidebar" aria-label="Editor sidebar">
+        <div
+          id="resize-sidebar"
+          tabindex="0"
+          role="separator"
+          aria-orientation="vertical"
+          aria-controls="sidebar"
+          data-aria="resizePanel"
+          aria-label="Resize sidebar"
+          data-title="resizePanel"
+          title="Resize sidebar"
+        ></div>
+        <nav>
+          <button class="active" id="chat-tab">
+            <span data-text="chat">Discuss</span></button
+          ><button id="json-tab">JSON</button>
+          <button
+            id="model-settings"
+            data-aria="modelSettings"
+            aria-label="Model settings"
+            data-title="modelSettings"
+            title="Model settings"
+          >
+            <i data-icon="settings"></i>
+          </button>
+          <button
+            id="close-sidebar"
+            aria-controls="sidebar"
+            data-aria="closePanel"
+            aria-label="Collapse sidebar"
+            data-title="closePanel"
+            title="Collapse sidebar"
+          >
+            <i data-icon="collapse"></i>
+          </button>
+        </nav>
+        <section id="conversation">
+          <div class="intro thread-head">
+            <p id="greeting"></p>
+            <div class="thread-controls">
+              <div id="threads" data-label="chats" aria-label="Conversations"></div>
+              <button
+                id="new-chat"
+                data-title="newChat"
+                title="New conversation"
+                data-aria="newChat"
+                aria-label="New conversation"
+              >
+                <i data-icon="plus"></i>
+              </button>
+            </div>
+          </div>
+          <div id="messages" role="log" aria-live="polite">
+            <div id="transcript"></div>
+            <div class="suggestions" id="suggestions"></div>
+          </div>
+          <form id="compose">
+            <div class="composer">
+              <div id="file-preview"></div>
+              <textarea
+                id="prompt"
+                rows="3"
+                maxlength="8000"
+                data-aria="prompt"
+                aria-label="Chat instruction"
+                data-placeholder="placeholder"
+                placeholder="Ask a question or describe an edit…"
+              ></textarea>
+              <div class="composer-foot">
+                <input type="file" id="md-upload" accept=".md,.markdown,text/markdown" hidden />
+                <button
+                  type="button"
+                  id="attach"
+                  data-aria="attach"
+                  aria-label="Attach Markdown"
+                  data-title="attach"
+                  title="Attach Markdown"
+                >
+                  .md
+                </button>
+                <button
+                  id="send"
+                  class="send"
+                  data-aria="send"
+                  aria-label="Send"
+                  data-title="send"
+                  title="Send"
+                >
+                  <span data-text="send">Send</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+        <section id="source" hidden>
+          <div class="source-head">
+            <label for="raw"><span data-text="definition">Agent definition</span></label
+            ><button id="revert" type="button"><span data-text="revert">Revert draft</span></button>
+          </div>
+          <textarea id="raw" spellcheck="false"></textarea>
+          <div id="source-error" role="alert"></div>
+          <button class="primary" id="apply"><span data-text="applyGraph">Apply to canvas</span></button>
+        </section>
+      </aside>
+    </main>
+    <div id="canvas-menu" role="menu" hidden></div>
+    <dialog id="edge-dialog" aria-labelledby="edge-title">
+      <form id="edge-form">
+        <div class="dialog-head">
+          <h2 id="edge-title" data-text="edgeCondition">Edit connection condition</h2>
+          <button type="button" id="edge-close" data-aria="close"><i data-icon="x"></i></button>
+        </div>
+        <code id="edge-ends"></code>
+        <p class="loop-help" id="edge-help"></p>
+        <div class="field">
+          <label data-text="edgeMode">Connection rule</label>
+          <div id="edge-mode" data-label="edgeMode"></div>
+        </div>
+        <div id="edge-compare" class="field" hidden>
+          <label for="edge-field" data-text="edgeField">Field path</label
+          ><input id="edge-field" spellcheck="false" />
+          <div class="field-pair">
+            <div class="field">
+              <label data-text="operator">Comparison</label>
+              <div id="edge-op" data-label="operator"></div>
+            </div>
+            <div class="field">
+              <label for="edge-value" data-text="edgeValue">Value</label
+              ><input id="edge-value" spellcheck="false" />
+            </div>
+          </div>
+        </div>
+        <div id="edge-custom" class="field" hidden>
+          <label for="edge-expr" data-text="edgeExpr">Boolean expression (JSON)</label>
+          <textarea id="edge-expr" class="code-field" spellcheck="false"></textarea>
+        </div>
+        <p class="form-error" id="edge-error" role="alert"></p>
+        <footer><button class="primary" data-text="apply">Apply changes</button></footer>
+      </form>
+    </dialog>
+    <dialog id="range-dialog" aria-labelledby="range-title">
+      <form id="range-form">
+        <div class="dialog-head">
+          <h2 id="range-title" data-text="loopRange">Loop over a path</h2>
+          <button type="button" id="range-close" data-aria="close"><i data-icon="x"></i></button>
+        </div>
+        <p class="loop-help" data-text="rangeHelp">
+          Choose the ends of an existing dependency path, or the same node to repeat it on its own.
+        </p>
+        <div class="field-pair">
+          <div class="field">
+            <label data-text="rangeEntry">Entry node</label>
+            <div id="range-entry" data-label="rangeEntry"></div>
+          </div>
+          <div class="field">
+            <label data-text="rangeEnd">End node</label>
+            <div id="range-end" data-label="rangeEnd"></div>
+          </div>
+        </div>
+        <output id="range-path"></output>
+        <label for="range-count" data-text="loopBudget">Iteration limit</label
+        ><input type="number" min="1" step="1" id="range-count" required />
+        <label data-text="stopRule">Stop rule</label>
+        <div id="range-mode" data-label="stopRule"></div>
+        <div id="range-expression" class="field">
+          <label for="range-until" data-text="resultCondition">End result condition</label>
+          <textarea
+            id="range-until"
+            spellcheck="false"
+            class="code-field"
+            placeholder='{"$ref":"result.done"}'
+          ></textarea>
+        </div>
+        <p class="form-error" id="range-error" role="alert"></p>
+        <footer>
+          <button type="button" id="range-remove" data-text="removeLoop">Remove loop</button
+          ><button class="primary" data-text="apply">Apply changes</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="binding-dialog" aria-labelledby="binding-title">
+      <form id="binding-form">
+        <div class="dialog-head">
+          <h2 id="binding-title" data-text="connectData">Connect data</h2>
+          <button type="button" id="binding-close" data-aria="close"><i data-icon="x"></i></button>
+        </div>
+        <p id="binding-from"></p>
+        <label data-text="bindField">Write the value to</label>
+        <div id="binding-slot" data-label="bindField"></div>
+        <pre id="binding-preview"></pre>
+        <p id="binding-error" class="form-error" role="alert"></p>
+        <footer><button class="primary" data-text="connect">Connect</button></footer>
+      </form>
+    </dialog>
+    <dialog id="import-dialog" aria-labelledby="import-title">
+      <form id="import-form">
+        <div class="dialog-head">
+          <h2 id="import-title" data-text="importJson">Import JSON</h2>
+          <button type="button" id="import-close" data-aria="close"><i data-icon="x"></i></button>
+        </div>
+        <p class="loop-help" data-text="importHelp">Import an Agent definition into a new canvas.</p>
+        <input hidden id="upload" type="file" accept=".json,application/json" />
+        <button type="button" id="import-file">
+          <i data-icon="folder"></i><span data-text="chooseJson">Choose a JSON file or drop it here</span>
+        </button>
+        <label for="import-source" data-text="pasteJson">Or paste JSON</label>
+        <textarea
+          id="import-source"
+          class="code-field"
+          spellcheck="false"
+          placeholder='{ "version": 1, "id": "my-agent", "graphs": … }'
+        ></textarea>
+        <p id="import-error" class="form-error" role="alert"></p>
+        <div id="import-examples">
+          <button type="button" data-example="museum/agent.json" data-text="museumExample">Museum visitor desk · 5 Workers</button>
+          <button type="button" id="import-example" data-example="library-returns.json" data-text="libraryExample">Library returns</button>
+        </div>
+        <footer>
+          <button id="import-submit" class="primary" disabled data-text="importCanvas">
+            Import to canvas
+          </button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="canvas-library" aria-labelledby="canvas-library-title">
+      <div class="dialog-head">
+        <h2 id="canvas-library-title" data-text="canvasHistory">Canvas history</h2>
+        <button id="history-close" data-aria="close"><i data-icon="x"></i></button>
+      </div>
+      <div class="history-actions">
+        <button id="new-canvas" class="primary">
+          <i data-icon="plus"></i><span data-text="newCanvas">New canvas</span>
+        </button>
+        <button id="clear-canvas" data-text="clearCanvas">Clear current canvas</button>
+        <button
+          id="history-import"
+          data-text="importJson"
+          aria-haspopup="dialog"
+          aria-controls="import-dialog"
+        >
+          Import JSON
+        </button>
+      </div>
+      <div id="history-list"></div>
+      <p id="history-error" class="form-error" role="alert"></p>
+    </dialog>
+    <dialog id="history-delete" aria-labelledby="history-delete-title">
+      <form id="history-delete-form">
+        <div class="dialog-head"><h2 id="history-delete-title" data-text="deleteCanvas">Delete canvas</h2></div>
+        <p id="history-delete-description"></p>
+        <p id="history-delete-error" class="form-error" role="alert"></p>
+        <footer>
+          <button type="button" id="history-delete-cancel" data-text="cancel">Cancel</button>
+          <button id="history-delete-confirm" class="delete-confirm" data-text="deleteCanvas">Delete canvas</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="canvas-dialog" aria-labelledby="canvas-title">
+      <form id="canvas-form">
+        <div class="dialog-head">
+          <h2 id="canvas-title"></h2>
+          <button type="button" id="canvas-cancel" data-aria="close"><i data-icon="x"></i></button>
+        </div>
+        <div id="canvas-name-field" class="field">
+          <label for="canvas-name" data-text="agentId">Agent ID</label>
+          <input id="canvas-name" spellcheck="false" autocomplete="off" />
+        </div>
+        <p id="clear-description" hidden></p>
+        <p id="canvas-error" class="form-error" role="alert"></p>
+        <footer>
+          <button type="button" id="canvas-back" data-text="cancel">Cancel</button>
+          <button id="canvas-confirm" class="primary"></button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="subgraph-dialog" aria-labelledby="sg-caption">
+      <form id="sg-form" novalidate>
+        <div class="dialog-head">
+          <h2 id="sg-caption"></h2>
+          <button id="sg-close" type="button" data-aria="close" aria-label="Close">
+            <i data-icon="x"></i>
+          </button>
+        </div>
+        <div id="sg-modes" class="segmented">
+          <button id="sg-new" type="button" data-text="createSubgraph">Create subgraph</button
+          ><button id="sg-use" type="button" data-text="insertSubgraph">Use existing</button>
+        </div>
+        <div id="sg-name-row" class="field">
+          <label for="sg-name" data-text="graphId">Graph ID</label><input id="sg-name" spellcheck="false" />
+        </div>
+        <div id="existing-row" class="field">
+          <label data-text="subgraph">Subgraph</label>
+          <div id="existing-graph" data-label="subgraph" aria-label="Subgraph"></div>
+        </div>
+        <div id="sg-json-row" class="field">
+          <label for="sg-json" data-text="graphBody">Nodes and output</label
+          ><textarea id="sg-json" class="code-field" spellcheck="false"></textarea>
+        </div>
+        <label id="sg-insert-row"
+          ><input type="checkbox" id="sg-insert" /> <span data-text="callFrom">Insert a call in</span>
+          <code id="sg-parent"></code
+        ></label>
+        <label id="sg-bind-row"
+          ><input type="checkbox" id="sg-bind" />
+          <span data-text="passInput">Pass graph input to this call</span></label
+        >
+        <p id="sg-error" class="form-error" role="alert"></p>
+        <footer><button class="primary" data-text="apply">Apply changes</button></footer>
+      </form>
+    </dialog>
+    <dialog id="loop-dialog" aria-labelledby="loop-title">
+      <form id="loop-form" novalidate>
+        <div class="dialog-head">
+          <h2 id="loop-title">Loop</h2>
+          <button id="loop-close" type="button" data-aria="close" aria-label="Close">
+            <i data-icon="x"></i>
+          </button>
+        </div>
+        <div class="segmented">
+          <button id="loop-visual" type="button" data-text="loopSteps">Steps</button
+          ><button type="button" id="loop-source">JSON</button>
+        </div>
+        <div id="loop-fields">
+          <p class="loop-help" data-text="loopHelp">
+            Each step runs a graph. The first matching condition chooses the next step or ends the loop.
+          </p>
+          <div class="field-pair">
+            <div class="field">
+              <label data-text="entryStep">Entry step</label>
+              <div id="entry-picker" data-label="entryStep" aria-label="Entry step"></div>
+            </div>
+            <div class="field">
+              <label for="loop-budget" data-text="loopBudget">Iteration limit</label
+              ><input id="loop-budget" type="number" min="1" step="1" />
+            </div>
+          </div>
+          <div class="field">
+            <label data-text="step">Step</label>
+            <div class="step-row">
+              <div id="step-picker" data-label="step" aria-label="Step"></div>
+              <button id="add-step" type="button" data-text="addStep">Insert step after</button>
+            </div>
+          </div>
+          <div class="field-pair">
+            <div class="field">
+              <label data-text="runGraph">Run graph</label>
+              <div id="step-graph" data-label="runGraph" aria-label="Run graph"></div>
+            </div>
+            <div class="field">
+              <label data-text="fallback">Default transition</label>
+              <div id="next-step" data-label="fallback" aria-label="Default transition"></div>
+            </div>
+          </div>
+          <div class="field" id="default-end-row">
+            <label for="default-end" data-text="endLabel">End name</label
+            ><input id="default-end" spellcheck="false" />
+          </div>
+          <section class="field">
+            <label data-text="conditions">Conditional transitions (in order)</label>
+            <div id="condition-rows"></div>
+            <button id="add-condition" type="button" data-text="addCondition">Add condition</button>
+            <details id="advanced-conditions">
+              <summary data-text="conditionJson">Condition JSON</summary>
+              <textarea
+                id="step-conditions"
+                class="code-field"
+                data-aria="conditions"
+                spellcheck="false"
+              ></textarea>
+            </details>
+          </section>
+        </div>
+        <div id="loop-json-row" class="field" hidden>
+          <label for="loop-json" data-text="loopDefinition">Loop definition</label
+          ><textarea id="loop-json" class="code-field" spellcheck="false"></textarea>
+        </div>
+        <p id="loop-error" class="form-error" role="alert"></p>
+        <footer>
+          <button type="button" id="loop-delete" data-text="removeLoop">Remove loop</button
+          ><button class="primary" data-text="apply">Apply changes</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="model-dialog" aria-labelledby="model-title">
+      <form id="model-form">
+        <div class="dialog-head">
+          <h2 id="model-title" data-text="modelSettings">Model settings</h2>
+          <button type="button" id="model-close" data-aria="close" aria-label="Close">
+            <i data-icon="x"></i>
+          </button>
+        </div>
+        <label data-text="providerLabel">Provider</label>
+        <div id="provider-picker" data-label="providerLabel" aria-label="Provider"></div>
+        <label for="base-url" data-text="endpoint">API endpoint</label
+        ><input type="url" id="base-url" required placeholder="https://…" />
+        <label for="model-name" data-text="modelName">Model name</label
+        ><input id="model-name" required maxlength="256" spellcheck="false" autocomplete="off" />
+        <label for="api-key">API Key</label
+        ><input type="password" id="api-key" maxlength="8192" autocomplete="off" spellcheck="false" />
+        <p class="model-note" data-text="modelScope">
+          Settings apply to this local editor until it restarts.
+        </p>
+        <p id="model-error" role="alert"></p>
+        <footer>
+          <button id="reset-model" type="button" data-text="modelReset">Use project defaults</button
+          ><button id="save-model" class="primary" data-text="modelSave">Save settings</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="library" aria-labelledby="library-title">
+      <div class="dialog-head">
+        <h2 id="library-title" data-text="addNode">Add node</h2>
+        <button id="library-close" data-aria="close" aria-label="Close"><i data-icon="x"></i></button>
+      </div>
+      <div class="library-body">
+        <div id="worker-list" role="group" aria-label="Workers"></div>
+        <section class="node-options">
+          <h3 id="worker-title"></h3>
+          <p id="package-status" hidden></p>
+          <div id="option-list"></div>
+        </section>
+      </div>
+    </dialog>
+    <dialog id="node-dialog" aria-labelledby="dialog-title">
+      <form method="dialog" id="node-form">
+        <div class="dialog-head">
+          <h2 id="dialog-title"><span data-text="editNode">Edit node</span></h2>
+          <button type="button" id="dismiss" data-aria="close" aria-label="Close">
+            <i data-icon="x"></i>
+          </button>
+        </div>
+        <p id="node-description" hidden></p>
+        <label for="node-json"><span data-text="nodeJson">Node JSON</span></label
+        ><textarea id="node-json" spellcheck="false"></textarea>
+        <p id="node-error" role="alert"></p>
+        <footer>
+          <button type="button" id="back-library" data-text="backLibrary" hidden>Choose another node</button>
+          <button type="button" id="remove"><span data-text="deleteNode">Delete node</span></button
+          ><button id="confirm-node" type="submit" class="primary">Apply changes</button>
+        </footer>
+      </form>
+    </dialog>
+    <div id="notice" role="status" hidden></div>
+    <script src="/markdown-it.min.js"></script>
+    <script type="module" src="/editor.js"></script>
+  </body>
+</html>
