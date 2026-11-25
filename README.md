@@ -13,6 +13,10 @@
   <strong>English</strong> | <a href="https://github.com/erwinmsmith/Ditto/blob/main/README.zh-CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://ditto.code-soul.com/">Project website</a>
+</p>
+
 [Start the web graph editor](#start-the-web-graph-editor) · **[Build a complete Agent from scratch](docs/agent-from-zero.md)** · [Configuration reference](docs/agent-json.md) · [Developer handbook](docs/handbook/index.md)
 
 ## Install and use
