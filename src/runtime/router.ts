@@ -1,7 +1,7 @@
 import type { NodeType } from "../contracts/index.js";
 import type { WorkerExecutor } from "../worker/define-worker.js";
 import type { RuntimeServices } from "./services.js";
-import type { WorkerAddress } from "./communication/transport.js";
+import type { InvokeTransport, WorkerAddress } from "./communication/transport.js";
 
 export interface WorkerEntry {
   readonly address: WorkerAddress;
@@ -9,11 +9,15 @@ export interface WorkerEntry {
   readonly nodeTypes?: readonly NodeType[];
   readonly executor?: WorkerExecutor;
   readonly services?: RuntimeServices;
-  readonly transportId?: string;
+  readonly transport?: InvokeTransport;
   available: boolean;
   readonly concurrency: number;
   active: number;
   readonly pending: Set<Promise<unknown>>;
+}
+
+export function isWorkerAvailable(entry: WorkerEntry): boolean {
+  return entry.available && entry.transport?.available !== false;
 }
 
 export class NoWorkerAvailableError extends Error {
@@ -32,7 +36,7 @@ export class WorkerRouter {
     const pool: WorkerEntry[] = [];
     for (const entry of entries) {
       if (workerId !== undefined && entry.address.workerId !== workerId) continue;
-      if (!entry.available || entry.active >= entry.concurrency || !entry.capabilities.includes(node)) continue;
+      if (!isWorkerAvailable(entry) || entry.active >= entry.concurrency || !entry.capabilities.includes(node)) continue;
       const rank = entry.executor ? 0 : entry.address.hostId === hostId ? 1 : 2;
       if (rank < priority) { priority = rank; pool.length = 0; }
       if (rank === priority) pool.push(entry);

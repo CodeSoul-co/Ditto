@@ -1,8 +1,11 @@
 import type { DittoRuntime } from "../runtime.js";
-import type { InvocationEnvelope, InvocationResult, InvokeTransport } from "./transport.js";
+import { TransportError, type TransportErrorCode, type InvocationEnvelope, type InvocationResult, type InvokeTransport } from "./transport.js";
 
 /** Node child_process ChildProcess or process; the application owns process lifetime. */
 export interface IpcChannel extends Pick<NodeJS.EventEmitter, "on" | "off"> {
+  readonly connected?: boolean | undefined;
+  readonly exitCode?: string | number | null | undefined;
+  readonly signalCode?: NodeJS.Signals | null;
   send?(message: object, callback?: (error: Error | null) => void): boolean;
 }
 export interface IpcTransportOptions {
@@ -42,43 +45,61 @@ export function createIpcTransport({ id, channel, timeoutMs = 30_000 }: IpcTrans
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
     throw new Error("IPC timeoutMs must be between 1 and 2147483647");
   }
-  const pending = new Map<string, { resolve(value: InvocationResult): void; reject(error: unknown): void }>();
+  const pending = new Map<string, { resolve(value: InvocationResult): void; fail(code: TransportErrorCode, message: string): void }>();
   let closed = false;
+  let exited = false;
+  // ChildProcess records the exit status even when disconnect arrived first.
+  const closeCode = () => exited || ("signalCode" in channel && (channel.signalCode != null || channel.exitCode != null))
+    ? "WORKER_EXITED" : "CHANNEL_CLOSED";
   const onMessage = (value: unknown): void => {
     if (!packet(value) || value.kind !== "response") return;
     const job = pending.get(value.id);
     if (!job) return;
-    if (value.error) job.reject(new Error(value.error));
+    if (value.error) job.fail("REMOTE_ERROR", value.error);
     else if (value.result?.invocationId === value.id && value.result.payload) job.resolve(value.result);
-    else job.reject(new Error("Invalid IPC result"));
+    else job.fail("INVALID_RESPONSE", "Invalid IPC result");
   };
   const close = (): void => {
     if (closed) return;
     closed = true;
     channel.off("message", onMessage);
     channel.off("disconnect", close);
-    for (const job of pending.values()) job.reject(new Error("IPC transport is closed"));
+    channel.off("exit", onExit);
+    for (const job of pending.values()) job.fail(closeCode(), "IPC transport is closed");
   };
+  const onExit = (): void => { exited = true; close(); };
   channel.on("message", onMessage);
   channel.on("disconnect", close);
+  channel.on("exit", onExit);
+  if (channel.connected === false) close();
   return {
     id, close,
+    get available() { return !closed && channel.connected !== false; },
     invoke(envelope, options) {
-      if (closed) return Promise.reject(new Error("IPC transport is closed"));
+      if (closed || channel.connected === false)
+        return Promise.reject(new TransportError(closeCode(), "not_sent", envelope, "IPC transport is closed"));
       if (options?.signal?.aborted) return Promise.reject(options.signal.reason);
-      if (pending.has(envelope.id)) return Promise.reject(new Error("Duplicate IPC invocation ID"));
+      if (pending.has(envelope.id))
+        return Promise.reject(new TransportError("INVALID_REQUEST", "not_sent", envelope, "Duplicate IPC invocation ID"));
       return new Promise<InvocationResult>((resolve, reject) => {
         const finish = (error: unknown, result?: InvocationResult): void => {
-          if (!pending.delete(envelope.id)) return;
+          if (pending.get(envelope.id) !== job) return;
+          pending.delete(envelope.id);
           clearTimeout(timer);
           options?.signal?.removeEventListener("abort", abort);
           if (result) resolve(result); else reject(error);
         };
         const abort = (): void => finish(options?.signal?.reason);
-        const timer = setTimeout(() => finish(new Error("IPC invocation timed out")), timeoutMs);
-        pending.set(envelope.id, { resolve: result => finish(undefined, result), reject: error => finish(error) });
+        const job = {
+          resolve: (result: InvocationResult) => finish(undefined, result),
+          fail: (code: TransportErrorCode, message: string, cause?: unknown) =>
+            finish(new TransportError(code, "outcome_unknown", envelope, message, { cause })),
+        };
+        const timer = setTimeout(() => job.fail("TIMEOUT", "IPC invocation timed out"), timeoutMs);
+        pending.set(envelope.id, job);
         options?.signal?.addEventListener("abort", abort, { once: true });
-        void send(channel, { protocol, kind: "request", id: envelope.id, envelope }).catch(error => finish(error));
+        void send(channel, { protocol, kind: "request", id: envelope.id, envelope })
+          .catch(error => job.fail("COMMUNICATION_ERROR", "IPC send failed", error));
       });
     },
   };

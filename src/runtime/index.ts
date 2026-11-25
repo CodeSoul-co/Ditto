@@ -21,8 +21,10 @@ export type { ArtifactStore, Payload } from "./artifact.js";
 export { LocalEventFabric } from "./communication/events.js";
 export type { EventFabric, EventFailure, EventHandler, RuntimeEvent } from "./communication/events.js";
 export type {
-  ExecutionScope, InvocationEnvelope, InvocationResult, InvokeOptions, InvokeTransport, RemoteWorker, WorkerAddress,
+  ExecutionScope, InvocationEnvelope, InvocationResult, InvocationStatus, InvokeOptions, InvokeTransport,
+  RemoteWorker, TransportErrorCode, WorkerAddress,
 } from "./communication/transport.js";
+export { TransportError } from "./communication/transport.js";
 export * from "./config.js";
 export * from "./services.js";
 export * from "./communication/http.js";

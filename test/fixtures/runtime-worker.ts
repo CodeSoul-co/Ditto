@@ -5,6 +5,10 @@ import { createDitto, createWorkerHttpHandler, defineWorker, serveWorkerIpc } fr
 const runtime = createDitto({ hostId: "same-host", processId: "child", workers: [] });
 const worker = runtime.register(defineWorker({ type: "MEMORY", nodes: {
   "MEMORY.GET": async ({ ids }, ctx) => {
+    if (ids?.[0] === "wait-for-exit") {
+      process.send!("started");
+      await new Promise<void>(() => {});
+    }
     if (ids?.[0] === "slow") await delay(100);
     return { executionId: "fixture", node: "MEMORY.GET", status: "success", output: [{ id: "result",
       content: JSON.stringify({ pid: process.pid, ids, execution: ctx.execution }) }] };

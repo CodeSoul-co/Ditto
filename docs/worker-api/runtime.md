@@ -16,6 +16,10 @@ Routing filters public capabilities, availability and capacity, then prefers dir
 
 Local IPC / network HTTP are deployment modes. Separately, `invoke` means request/response and `emit` means asynchronous event acceptance. Events stay within the injected EventFabric; invoking a Worker through IPC/HTTP does not broadcast events. See [communication](../worker-communication.md) for credentials and Artifact storage.
 
+An IPC disconnect or child exit makes every Worker on that channel unavailable in both routing and `runtime.workers()`. Subsequent unpinned calls can use healthy replicas. A timeout affects only the invocation. Custom transports can expose the same route signal through a synchronous `available` getter.
+
+IPC and HTTP invocation failures expose `TransportError` with `code`, `status`, `workerId` and `invocationId`. The code describes the observation, such as `CHANNEL_CLOSED`, `WORKER_EXITED` (confirmed locally) or `TIMEOUT`. A status of `not_sent` applies to this attempt only. With `outcome_unknown`, a side effect may already have occurred. The application can reconcile its receipt using a stable operation key before deciding whether to retry. Caller cancellation preserves the supplied abort reason.
+
 ## Creation, registration and cleanup
 
 ```ts

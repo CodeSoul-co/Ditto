@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import {
   createDitto, createHttpTransport, createIpcTransport, defineWorker, graph,
-  type WorkerAddress, type InvocationEnvelope,
+  NoWorkerAvailableError, TransportError, type WorkerAddress, type InvocationEnvelope,
 } from "../src/index.js";
 
 test("real child IPC and HTTP run one graph with route bindings, correlation and execution scope", async () => {
@@ -52,18 +52,63 @@ test("real child IPC and HTTP run one graph with route bindings, correlation and
     controller.abort(new Error("caller cancelled"));
     await assert.rejects(cancelled, /caller cancelled/);
     const timed = createIpcTransport({ id: "short", channel: child, timeoutMs: 1 });
-    try { await assert.rejects(timed.invoke(envelope()), /timed out/); } finally { timed.close(); }
+    try {
+      await assert.rejects(timed.invoke(envelope()), { code: "TIMEOUT", status: "outcome_unknown" });
+      assert.equal(timed.available, true);
+    } finally { timed.close(); }
+    const unauthorized = createHttpTransport({ id: "denied", url: ready.url, token: "wrong" });
+    await assert.rejects(unauthorized.invoke(envelope()), { code: "REMOTE_ERROR", status: "outcome_unknown" });
+    const small = createHttpTransport({ id: "small", url: ready.url, token, maxBodyBytes: 1 });
+    await assert.rejects(small.invoke(envelope()), { code: "INVALID_REQUEST", status: "not_sent" });
     const jobs = [ipc.invoke(envelope()), ipc.invoke(envelope())];
     const settled = Promise.allSettled(jobs);
     ipc.close();
-    assert.ok((await settled).every(result => result.status === "rejected"));
-    await assert.rejects(ipc.invoke(envelope()), /closed/);
+    for (const result of await settled) {
+      assert.ok(result.status === "rejected" && result.reason instanceof TransportError);
+      assert.equal(result.reason.code, "CHANNEL_CLOSED");
+      assert.equal(result.reason.status, "outcome_unknown");
+    }
+    await assert.rejects(ipc.invoke(envelope()), { code: "CHANNEL_CLOSED", status: "not_sent" });
   } finally {
     await runtime?.close(); ipc?.close();
     if (child.connected) child.send("shutdown");
     const timer = setTimeout(() => child.kill(), 3000);
     try { await exit; } finally { clearTimeout(timer); }
   }
+});
+
+test("worker exit excludes its IPC route, preserves pinned routing and leaves in-flight recovery to the caller", async () => {
+  const child = fork(new URL("./fixtures/runtime-worker.js", import.meta.url), [], {
+    env: { ...process.env, TEST_WORKER_TOKEN: randomUUID() }, stdio: ["ignore", "ignore", "inherit", "ipc"],
+  });
+  const exit = once(child, "exit");
+  const ipc = createIpcTransport({ id: "A", channel: child });
+  let callsToB = 0;
+  const runtime = createDitto({ transports: [ipc, { id: "B", async invoke(envelope) {
+    callsToB++;
+    return { invocationId: envelope.id, payload: { kind: "inline", value: { executionId: "B", node: "MEMORY.GET", status: "success", output: [] } } };
+  } }] });
+  try {
+    const [ready] = await once(child, "message", { signal: AbortSignal.timeout(5000) }) as [{ worker: WorkerAddress }];
+    const a = runtime.registerRemote({ address: ready.worker, capabilities: ["MEMORY.GET"], transportId: ipc.id });
+    runtime.registerRemote({ address: { ...ready.worker, workerId: "B" }, capabilities: ["MEMORY.GET"], transportId: "B" });
+    const started = once(child, "message", { signal: AbortSignal.timeout(5000) });
+    const failed = assert.rejects(runtime.invoke("MEMORY.GET", { ids: ["wait-for-exit"] }), (error: unknown) =>
+      error instanceof TransportError && ["CHANNEL_CLOSED", "WORKER_EXITED"].includes(error.code)
+      && error.status === "outcome_unknown" && error.workerId === a.address.workerId && !!error.invocationId);
+    assert.equal((await started)[0], "started");
+    child.kill("SIGKILL");
+    await exit;
+    await failed;
+    a.setAvailable(true);
+    assert.deepEqual(runtime.workers().map(worker => worker.available), [false, true]);
+    await assert.rejects(runtime.invoke("MEMORY.GET", {}, { workerId: a.address.workerId }), NoWorkerAvailableError);
+    assert.equal(callsToB, 0);
+    await runtime.invoke("MEMORY.GET", {});
+    assert.equal(callsToB, 1);
+    await assert.rejects(ipc.invoke({ id: "later", target: a.address, node: "MEMORY.GET", payload: { kind: "inline", value: {} } }),
+      { code: "WORKER_EXITED", status: "not_sent", invocationId: "later", workerId: a.address.workerId });
+  } finally { child.kill(); await exit; ipc.close(); await runtime.close(); }
 });
 
 test("router prefers local, same-host IPC, then cross-host HTTP without changing the graph", async () => {

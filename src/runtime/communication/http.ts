@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { RequestListener } from "node:http";
 import type { DittoRuntime } from "../runtime.js";
-import type { InvocationEnvelope, InvocationResult, InvokeTransport } from "./transport.js";
+import { TransportError, type InvocationEnvelope, type InvocationResult, type InvokeTransport } from "./transport.js";
 
 export interface HttpTransportOptions {
   readonly id: string;
@@ -28,27 +28,50 @@ export function createHttpTransport(options: HttpTransportOptions): InvokeTransp
   return {
     id: options.id,
     async invoke(envelope, invocationOptions): Promise<InvocationResult> {
-      const body = JSON.stringify(envelope);
-      if (Buffer.byteLength(body) > maxBodyBytes) throw new Error("Worker request is too large");
-      const response = await fetch(url, {
-        method: "POST", redirect: "error", signal: AbortSignal.any([AbortSignal.timeout(timeoutMs),
-          ...(invocationOptions?.signal ? [invocationOptions.signal] : [])]),
-        headers: { authorization: `Bearer ${options.token}`, "content-type": "application/json", "x-ditto-protocol": "1" }, body,
-      });
-      if (!response.ok) { await response.body?.cancel(); throw new Error(`Worker request failed (HTTP ${response.status})`); }
-      if (response.headers.get("x-ditto-protocol") !== "1" || !response.body) {
-        await response.body?.cancel(); throw new Error("Invalid Worker protocol response");
+      invocationOptions?.signal?.throwIfAborted();
+      let body: string;
+      try { body = JSON.stringify(envelope); }
+      catch (cause) { throw new TransportError("INVALID_REQUEST", "not_sent", envelope, "Invalid Worker request", { cause }); }
+      if (Buffer.byteLength(body) > maxBodyBytes)
+        throw new TransportError("INVALID_REQUEST", "not_sent", envelope, "Worker request is too large");
+
+      const deadline = AbortSignal.timeout(timeoutMs);
+      const signal = invocationOptions?.signal ? AbortSignal.any([deadline, invocationOptions.signal]) : deadline;
+      try {
+        const response = await fetch(url, {
+          method: "POST", redirect: "error", signal,
+          headers: { authorization: `Bearer ${options.token}`, "content-type": "application/json", "x-ditto-protocol": "1" }, body,
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new TransportError("REMOTE_ERROR", "outcome_unknown", envelope, `Worker request failed (HTTP ${response.status})`);
+        }
+        if (response.headers.get("x-ditto-protocol") !== "1" || !response.body) {
+          await response.body?.cancel();
+          throw new TransportError("INVALID_RESPONSE", "outcome_unknown", envelope, "Invalid Worker protocol response");
+        }
+        const chunks: Uint8Array[] = [];
+        let bytes = 0;
+        for await (const chunk of response.body) {
+          bytes += chunk.byteLength;
+          if (bytes > maxBodyBytes)
+            throw new TransportError("INVALID_RESPONSE", "outcome_unknown", envelope, "Worker response is too large");
+          chunks.push(chunk);
+        }
+        const result: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (!record(result) || result.invocationId !== envelope.id || !payload(result.payload))
+          throw new TransportError("INVALID_RESPONSE", "outcome_unknown", envelope, "Invalid Worker result");
+        return result as unknown as InvocationResult;
+      } catch (cause) {
+        if (cause instanceof TransportError) throw cause;
+        if (signal.aborted) {
+          if (signal.reason !== deadline.reason) throw signal.reason;
+          throw new TransportError("TIMEOUT", "outcome_unknown", envelope, "HTTP invocation timed out", { cause });
+        }
+        if (cause instanceof SyntaxError)
+          throw new TransportError("INVALID_RESPONSE", "outcome_unknown", envelope, "Invalid Worker JSON", { cause });
+        throw new TransportError("COMMUNICATION_ERROR", "outcome_unknown", envelope, "HTTP communication failed", { cause });
       }
-      const chunks: Uint8Array[] = [];
-      let bytes = 0;
-      for await (const chunk of response.body) {
-        bytes += chunk.byteLength;
-        if (bytes > maxBodyBytes) throw new Error("Worker response is too large");
-        chunks.push(chunk);
-      }
-      const result: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (!record(result) || result.invocationId !== envelope.id || !payload(result.payload)) throw new Error("Invalid Worker result");
-      return result as unknown as InvocationResult;
     },
   };
 }

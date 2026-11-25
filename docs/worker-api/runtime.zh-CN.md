@@ -16,6 +16,10 @@ Runtime 先筛选公开能力、可用状态、并发容量，然后优先同进
 
 这里的本地 IPC / 网络 HTTP 是部署通信模式。`invoke` 请求/响应和 `emit` 异步事件则是通信语义：默认事件只在注入的 EventFabric 内传播，不会随 IPC/HTTP 调用自动广播。网络协议、凭据与 Artifact 详见[通信与部署](../worker-communication.zh-CN.md)。
 
+IPC 断连或子进程退出后，共用这条通道的 Worker 在路由和 `runtime.workers()` 中均显示为不可用。后续未绑定 Worker 的调用可以选中健康副本。单次调用超时只影响本次调用。自定义 transport 可以通过同步的 `available` getter 提供同样的路由信号。
+
+IPC 和 HTTP 的调用错误通过 `TransportError` 暴露 `code`、`status`、`workerId` 和 `invocationId`。`code` 表示实际观测，例如通道关闭（`CHANNEL_CLOSED`）、已确认子进程退出（`WORKER_EXITED`）或超时（`TIMEOUT`）。`not_sent` 仅表示本次尝试尚未发送。`outcome_unknown` 表示外部操作可能已生效，应用可用稳定的业务操作键核对回执后决定是否重试。调用方主动取消时保留原始取消原因。
+
 ## 创建、注册与释放
 
 ```ts

@@ -8,7 +8,8 @@ import { graph, runGraph, type ExecutionGraph, type GraphRunOptions } from "./gr
 import { runGraphPlan, type LoopPlanDefinition, type AsyncLoopPlanDefinition, type LoopGraphEvent } from "./graph-plan.js";
 import { runLoop, type LoopDefinition } from "./loop.js";
 import type { LoopCheckpointOptions } from "./checkpoint.js";
-import { WorkerRouter, type WorkerEntry } from "./router.js";
+import { WorkerRouter, isWorkerAvailable, type WorkerEntry } from "./router.js";
+import { TransportError } from "./communication/transport.js";
 import { createRuntimeServices, type RuntimeServices, type RuntimeServiceOptions } from "./services.js";
 import type {
   ExecutionScope, InvocationEnvelope, InvocationResult, InvokeOptions, InvokeTransport, RemoteWorker, WorkerAddress,
@@ -94,7 +95,8 @@ export class DittoRuntime implements RuntimeClient {
 
   registerRemote(worker: RemoteWorker): WorkerHandle {
     this.#checkId(worker.address.workerId);
-    if (!this.#transports.has(worker.transportId)) {
+    const transport = this.#transports.get(worker.transportId);
+    if (!transport) {
       throw new Error(`Transport is not installed: ${worker.transportId}`);
     }
     if (worker.address.hostId === this.hostId && worker.address.processId === this.processId) {
@@ -106,14 +108,15 @@ export class DittoRuntime implements RuntimeClient {
     return this.#add({
       address: Object.freeze({ ...worker.address }),
       capabilities: this.#capabilities(worker.address, worker.capabilities),
-      transportId: worker.transportId, available: true,
+      transport, available: true,
       concurrency: worker.concurrency ?? Infinity, active: 0, pending: new Set(),
     });
   }
 
   workers(): readonly { address: WorkerAddress; capabilities: readonly NodeType[]; available: boolean; active: number; concurrency: number }[] {
-    return [...this.#workers.values()].map(({ address, capabilities, available, active, concurrency }) => ({
-      address, capabilities, available, active, concurrency,
+    return [...this.#workers.values()].map(entry => ({
+      address: entry.address, capabilities: entry.capabilities, available: isWorkerAvailable(entry),
+      active: entry.active, concurrency: entry.concurrency,
     }));
   }
 
@@ -261,15 +264,17 @@ export class DittoRuntime implements RuntimeClient {
         return result;
       });
     }
-    const transport = this.#transports.get(entry.transportId!)!;
+    const transport = entry.transport!;
     const id = randomUUID();
     return this.#track(entry, async () => {
-      const response = await transport.invoke({
+      const envelope: InvocationEnvelope = {
         id, node, target: entry.address, payload: await this.#codec.encode(input),
         ...(source ? { source } : {}), ...(execution ? { execution } : {}),
-      }, options);
+      };
+      const response = await transport.invoke(envelope, options);
       options.signal?.throwIfAborted();
-      if (response.invocationId !== id) throw new Error("Transport returned a mismatched invocation ID");
+      if (response.invocationId !== id) throw new TransportError("INVALID_RESPONSE", "outcome_unknown", envelope,
+        "Transport returned a mismatched invocation ID");
       return this.#codec.decode(response.payload);
     });
   }
