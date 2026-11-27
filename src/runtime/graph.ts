@@ -9,7 +9,8 @@ import type {
 import type { RuntimeClient } from "../worker/execution-context.js";
 import type { ContextSelection } from "../worker/context/contracts.js";
 import type { InteractionMcpInput, InteractionMcpOutput, InteractionToolOutput } from "../worker/interaction/contracts.js";
-import { checkpointState, restoreState, stateDigest, UncertainGraphCheckpointError, type GraphCheckpointOptions } from "./checkpoint.js";
+import { checkpointState, restoreState, stateDigest, UncertainGraphCheckpointError, type GraphCheckpoint, type GraphCheckpointOptions } from "./checkpoint.js";
+import type { ExecutionAttempt, ExecutionReporter } from "./execution-events.js";
 
 export interface GraphTask {
   readonly id: string;
@@ -82,13 +83,18 @@ export interface GraphRunOptions {
   readonly concurrency?: number;
   readonly signal?: AbortSignal;
   readonly checkpoint?: GraphCheckpointOptions;
+  /** Logical Graph invocation identity, retained in checkpoints. Omit for a fresh ID. */
+  readonly runId?: string;
+  /** Parent execution, shared by the Graphs of one configured Agent run. */
+  readonly executionId?: string;
 }
 
 export async function runGraph<I, O extends object>(
   graph: ExecutionGraph<I, O>,
   input: I,
-  invoke: (node: NodeType, input: unknown, scope: ExecutionScope) => Promise<unknown>,
+  invoke: (node: NodeType, input: unknown, scope: ExecutionScope, onAcceptedAttempt?: (attempt: ExecutionAttempt) => void) => Promise<unknown>,
   options: GraphRunOptions = {},
+  report?: ExecutionReporter,
 ): Promise<O> {
   const concurrency = options.concurrency ?? Infinity;
   if (concurrency !== Infinity && (!Number.isSafeInteger(concurrency) || concurrency < 1)) {
@@ -103,6 +109,12 @@ export async function runGraph<I, O extends object>(
   const restored = checkpoint?.resume ? restoreState(checkpoint.resume, `graph:${graph.id}`, checkpoint.version) : undefined;
   if (restored && (restored.graphHash !== graphHash || restored.inputHash !== inputHash))
     throw new Error("Graph checkpoint is incompatible");
+  const runId = restored?.runId ?? options.runId ?? randomUUID();
+  const executionId = restored?.executionId ?? options.executionId ?? runId;
+  const reportCheckpoint = (type: "checkpoint.saved" | "checkpoint.restored", saved: GraphCheckpoint) =>
+    report?.({ type, runId, executionId, scope: saved.scope, digest: saved.digest,
+      confirmed: Object.keys(saved.state.outputs), uncertain: [...saved.state.uncertain] });
+  if (checkpoint?.resume) reportCheckpoint("checkpoint.restored", checkpoint.resume);
   if (restored?.uncertain.length) throw new UncertainGraphCheckpointError(checkpoint!.resume!);
   const outputs: Record<string, unknown> = Object.assign(Object.create(null), restored?.outputs ?? {});
   const known = new Set(graph.tasks.map(t => t.id));
@@ -127,14 +139,17 @@ export async function runGraph<I, O extends object>(
     remaining.set(task, pending);
     if (!pending && !Object.hasOwn(outputs, task.id)) ready.push(task);
   }
-  const runId = randomUUID();
   return new Promise<O>((resolve, reject) => {
     let cursor = 0, active = 0, failed = false;
     let saving = false, savedBoundary = "", admittedUntil = 0;
     const uncertain = new Set<string>();
-    const snapshot = () => checkpointState(`graph:${graph.id}`, checkpoint!.version, {
-      graphHash, inputHash, outputs, uncertain: [...uncertain], ...(skipped.size ? { skipped: [...skipped] } : {}),
-    });
+    const save = async () => {
+      const saved = checkpointState(`graph:${graph.id}`, checkpoint!.version, {
+        runId, executionId, graphHash, inputHash, outputs, uncertain: [...uncertain], ...(skipped.size ? { skipped: [...skipped] } : {}),
+      });
+      await checkpoint!.save(saved);
+      reportCheckpoint("checkpoint.saved", saved);
+    };
     let failure: unknown;
     const stop = (error: unknown): void => { if (!failed) { failed = true; failure = error; } };
     const pump = (): void => {
@@ -146,7 +161,7 @@ export async function runGraph<I, O extends object>(
         const boundary = `${Object.keys(outputs).length}:${uncertain.size}`;
         if (boundary !== savedBoundary) {
           saving = true;
-          void Promise.resolve().then(() => checkpoint.save(snapshot())).then(() => {
+          void save().then(() => {
               savedBoundary = boundary; saving = false; pump();
             }, reject);
           return;
@@ -156,7 +171,7 @@ export async function runGraph<I, O extends object>(
           for (let i = cursor; i < admittedUntil; i++) uncertain.add(ready[i]!.id);
           // Durable intent must precede dispatch, including the first wave.
           saving = true;
-          void Promise.resolve().then(() => checkpoint.save(snapshot())).then(() => {
+          void save().then(() => {
               savedBoundary = `${Object.keys(outputs).length}:${uncertain.size}`;
               saving = false; pump();
             }, reject);
@@ -165,6 +180,7 @@ export async function runGraph<I, O extends object>(
       }
       while (!failed && active < concurrency && cursor < (checkpoint ? admittedUntil : ready.length)) {
         const task = ready[cursor++]!;
+        let accepted: ExecutionAttempt | undefined;
         active++;
         void Promise.resolve().then(() => {
           options.signal?.throwIfAborted();
@@ -178,9 +194,8 @@ export async function runGraph<I, O extends object>(
           }
           const value = task.bind(input, Object.freeze(dependencies));
           if (value === SKIPPED) return SKIPPED;
-          return invoke(task.node, value, {
-            graphId: graph.id, runId, nodeId: task.id,
-          }).then(output => {
+          const scope = { graphId: graph.id, runId, nodeId: task.id, executionId };
+          return invoke(task.node, value, scope, report ? attempt => { accepted = attempt; } : undefined).then(output => {
             if (checkpoint && output === undefined) throw new Error("Checkpoint Node outputs must be JSON; use null instead of undefined");
             task.validateOutput?.(output); return output;
           });
@@ -188,6 +203,7 @@ export async function runGraph<I, O extends object>(
           if (output === SKIPPED) skipped.add(task.id);
           outputs[task.id] = output === SKIPPED ? null : output;
           uncertain.delete(task.id);
+          if (accepted) report?.({ type: "operation.committed", ...accepted });
           for (const child of dependents.get(task.id)!) {
             if (Object.hasOwn(outputs, child.id)) continue;
             const count = remaining.get(child)! - 1;

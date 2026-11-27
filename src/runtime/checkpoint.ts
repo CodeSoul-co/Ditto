@@ -1,3 +1,4 @@
+import { executionReporter, type ExecutionObserver } from "./execution-events.js";
 import { createHash } from "node:crypto";
 
 /** Portable checkpoints contain explicit JSON state, never closures or live resources. */
@@ -41,6 +42,8 @@ export function restoreState<T>(checkpoint: StateCheckpoint<T>, scope: string, v
 }
 
 export interface GraphCheckpointState {
+  readonly executionId?: string;
+  readonly runId?: string; // Optional for checkpoints created before execution tracing.
   readonly graphHash: string;
   readonly inputHash: string;
   readonly outputs: Readonly<Record<string, unknown>>;
@@ -70,6 +73,7 @@ export class UncertainGraphCheckpointError extends Error {
 export function reconcileGraphCheckpoint(
   checkpoint: GraphCheckpoint,
   resolutions: Readonly<Record<string, { readonly output: unknown } | { readonly retry: true }>>,
+  onExecutionEvent?: ExecutionObserver,
 ): GraphCheckpoint {
   const state = restoreState(checkpoint, checkpoint.scope, checkpoint.version);
   const outputs: Record<string, unknown> = Object.assign(Object.create(null), state.outputs);
@@ -82,7 +86,14 @@ export function reconcileGraphCheckpoint(
       throw new Error(`Invalid operation resolution: ${id}`);
     pending.delete(id);
   }
-  return checkpointState(checkpoint.scope, checkpoint.version, { ...state, outputs, uncertain: [...pending] });
+  const next = checkpointState(checkpoint.scope, checkpoint.version, { ...state, outputs, uncertain: [...pending] });
+  if (onExecutionEvent) {
+    const ids = Object.keys(resolutions);
+    executionReporter(onExecutionEvent)({ type: "checkpoint.reconciled", scope: next.scope, digest: next.digest,
+      ...(state.runId && { runId: state.runId }), ...(state.executionId && { executionId: state.executionId }),
+      confirmed: ids.filter(id => Object.hasOwn(outputs, id)), retry: ids.filter(id => !Object.hasOwn(outputs, id)) });
+  }
+  return next;
 }
 
 export interface LoopCheckpointState {

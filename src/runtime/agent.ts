@@ -414,7 +414,7 @@ function compileDefinition(source: unknown): CompiledAgent {
       const { stateCheckpoint: _checkpoint, onBoundary: _boundary, ...runOptions } = options;
       const offset = options.stateCheckpoint?.resume?.state.iteration ?? 0;
       return runtime.loop({ id, maxIterations: program.maxIterations,
-        plan: () => executeAgent(program, graphs, project, stateDigest([definitionHash, workers]), input, options),
+        plan: () => executeAgent(program, graphs, project, stateDigest([definitionHash, workers]), input, options, runtime.reportExecution),
       }, input, { ...runOptions, workers,
         ...(options.onGraph ? { onGraph: event => options.onGraph!({ ...event, iteration: event.iteration + offset }) } : {}),
       });

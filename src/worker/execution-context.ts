@@ -18,6 +18,8 @@ export interface WorkerContext<R = undefined, C = undefined> extends RuntimeClie
   readonly services: RuntimeServices;
   readonly worker: WorkerAddress;
   readonly execution: ExecutionScope | undefined;
+  /** Controller-assigned identity when execution tracing or recovery is enabled. */
+  readonly invocation?: { readonly operationId: string; readonly attemptId: string };
   /** Cooperative cancellation; handlers pass this to SDKs/executors they own. */
   readonly signal?: AbortSignal;
   /** Execute an internal graph entirely on this Worker replica. */

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { JsonValue } from "../contracts/common.js";
+import type { ExecutionReporter } from "./execution-events.js";
 import type { LoopRunOptions } from "./runtime.js";
 import { graphStep, type AsyncGraphPlan, type GraphPlan } from "./graph-plan.js";
 import type { ExecutionGraph } from "./graph.js";
-import { checkpointState, restoreState, stateDigest, type GraphCheckpoint, type StateCheckpoint } from "./checkpoint.js";
+import { checkpointState, restoreState, stateDigest, type GraphCheckpoint, type GraphCheckpointOptions, type StateCheckpoint } from "./checkpoint.js";
 import { boolean, fields, record, snapshot } from "./agent-expression.js";
 
 export interface AgentCheckpointState {
@@ -85,9 +86,9 @@ export function* agentPlan(program: AgentProgram, graphs: Graphs, project: Proje
 }
 
 export async function* executeAgent(
-  program: AgentProgram, graphs: Graphs, project: Project, definitionHash: string, input: unknown, options: AgentRunOptions,
+  program: AgentProgram, graphs: Graphs, project: Project, definitionHash: string, input: unknown, options: AgentRunOptions, report?: ExecutionReporter,
 ): AsyncGraphPlan<unknown> {
-  const checkpoint = options.stateCheckpoint, executionId = checkpoint?.id ?? randomUUID();
+  const checkpoint = options.stateCheckpoint, executionId = checkpoint?.id ?? options.executionId ?? randomUUID();
   if (checkpoint && (!checkpoint.id.trim() || !checkpoint.version.trim())) throw new Error("Checkpoint ID and version are required");
   const scope = `agent:${executionId}`, inputHash = checkpoint ? stateDigest(input) : "";
   let frame: AgentCheckpointState = checkpoint?.resume ? restoreState(checkpoint.resume, scope, checkpoint.version)
@@ -98,10 +99,12 @@ export async function* executeAgent(
     || !["ready", "running", "boundary", "completed"].includes(frame.phase)
     || (frame.phase === "running" && !frame.graphCheckpoint)) throw new Error("Invalid Agent checkpoint execution state");
   program.graph(frame.step); // Validate the cursor before any work, including completed resumes.
+  if (checkpoint?.resume) report?.({ type: "checkpoint.restored", scope, executionId, runId: executionId, digest: checkpoint.resume.digest });
   const save = async (): Promise<AgentCheckpoint | undefined> => {
     if (!checkpoint) return undefined;
     const saved = checkpointState(scope, checkpoint.version, frame);
     await checkpoint.save(saved);
+    report?.({ type: "checkpoint.saved", scope, executionId, runId: executionId, digest: saved.digest });
     return saved;
   };
   while (frame.phase !== "completed") {
@@ -115,14 +118,18 @@ export async function* executeAgent(
     }
     if (frame.phase !== "boundary") {
       const key = program.graph(frame.step), value = program.input(frame.step, input, frame.state);
-      const outputs = yield { kind: "graph", graph: graphs[key]!, input: value, options: checkpoint ? { checkpoint: {
+      const graphCheckpoint: GraphCheckpointOptions | undefined = checkpoint && {
         version: stateDigest([definitionHash, checkpoint.version]),
-        ...(frame.graphCheckpoint ? { resume: frame.graphCheckpoint } : {}),
-        save: async graphCheckpoint => {
-          frame = { ...frame, phase: "running", graphCheckpoint };
+        ...(frame.graphCheckpoint && { resume: frame.graphCheckpoint }),
+        save: async saved => {
+          frame = { ...frame, phase: "running", graphCheckpoint: saved };
           await save();
         },
-      } } : {} };
+      };
+      const outputs = yield { kind: "graph", graph: graphs[key]!, input: value, options: {
+        executionId, runId: JSON.stringify([executionId, frame.iteration]),
+        ...(graphCheckpoint && { checkpoint: graphCheckpoint }),
+      } };
       const result = project(key, value, outputs);
       const { graphCheckpoint: _previous, ...completed } = frame;
       frame = { ...completed, state: program.assign(frame.step, input, frame.state, result), result,

@@ -46,6 +46,7 @@ export function createIpcTransport({ id, channel, timeoutMs = 30_000 }: IpcTrans
     throw new Error("IPC timeoutMs must be between 1 and 2147483647");
   }
   const pending = new Map<string, { resolve(value: InvocationResult): void; fail(code: TransportErrorCode, message: string): void }>();
+  const listeners = new Set<() => void>();
   let closed = false;
   let exited = false;
   // ChildProcess records the exit status even when disconnect arrived first.
@@ -66,6 +67,8 @@ export function createIpcTransport({ id, channel, timeoutMs = 30_000 }: IpcTrans
     channel.off("disconnect", close);
     channel.off("exit", onExit);
     for (const job of pending.values()) job.fail(closeCode(), "IPC transport is closed");
+    for (const listener of listeners) listener();
+    listeners.clear();
   };
   const onExit = (): void => { exited = true; close(); };
   channel.on("message", onMessage);
@@ -74,6 +77,11 @@ export function createIpcTransport({ id, channel, timeoutMs = 30_000 }: IpcTrans
   if (channel.connected === false) close();
   return {
     id, close,
+    onUnavailable(listener) {
+      if (closed) listener();
+      else listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
     get available() { return !closed && channel.connected !== false; },
     invoke(envelope, options) {
       if (closed || channel.connected === false)

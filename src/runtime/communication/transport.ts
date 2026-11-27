@@ -10,6 +10,7 @@ export interface WorkerAddress {
 }
 
 export interface ExecutionScope {
+  readonly executionId?: string;
   readonly graphId: string;
   readonly runId: string;
   readonly nodeId: string;
@@ -21,6 +22,7 @@ export interface InvokeOptions {
 }
 
 export interface InvocationEnvelope {
+  readonly operationId?: string;
   readonly id: string;
   readonly source?: WorkerAddress;
   readonly target: WorkerAddress;
@@ -56,6 +58,8 @@ export interface InvokeTransport {
   readonly id: string;
   /** A known unavailable route is excluded from new calls to all Workers on it. */
   readonly available?: boolean;
+  /** Optional notification when this route becomes unavailable. Returns an unsubscribe function. */
+  onUnavailable?(listener: () => void): () => void;
   invoke(envelope: InvocationEnvelope, options?: { signal?: AbortSignal }): Promise<InvocationResult>;
 }
 

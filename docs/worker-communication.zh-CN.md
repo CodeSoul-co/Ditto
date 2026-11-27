@@ -74,7 +74,24 @@ try {
 
 Token 是服务级凭证，可调用该服务 Runtime 内所有公开能力，不是租户或单 Node ACL。外部请求应通过应用自己的认证/租户网关；限制公开入口用 `expose`。执行端使用自己的 Provider Key、连接与 Sandbox 配置，Envelope 不接受这些设置的覆盖；INFER 的业务输入仍显式包含 model，由执行端已配置 Provider 解析。业务输入本身仍可能包含敏感内容，应按应用需要管理日志和存储。
 
-不自动重试：超时/断线意味着调用结果未知，远端可能仍在执行，或已经改变外部状态。HTTP 客户端超时只结束等待，不提供远端取消、去重、事务或 exactly-once。上层如要重试可能影响外部状态的操作，须提供业务幂等键和持久化结果表。远端满载目前返回通用失败，调用端没有自动故障转移或健康探测。
+默认每次调用只派发一次。超时或断线后，远端可能已经完成操作。HTTP 取消会结束调用方的等待，远端仍可能继续执行。
+
+### 执行事件与可选的跨 Worker 故障转移
+
+宿主在 `createDitto` 或 `createAgent` 上分别配置 `onExecutionEvent` 和 `recoveryPolicy`。下面的配置允许一次初始派发和一次重试。
+
+```ts
+const runtime = createDitto({
+  onExecutionEvent(event) { console.log(event); },
+  recoveryPolicy: { maxAttempts: 2 },
+});
+```
+
+- **跟踪调用。** 一次逻辑调用派发时产生 `operation.dispatched`。每次实际尝试产生 `attempt.started` 以及后续的 `attempt.succeeded` 或 `attempt.failed`。各次尝试共享 `operationId`，各自的 `attemptId` 与传输层调用 ID 一致。Worker 可通过 `ctx.invocation` 读取两者。成功返回的推理尝试可携带 Provider 报告的用量，丢失回执的尝试用量未知。
+- **区分采纳和持久化。** `operation.committed` 指明采纳的尝试，在 Graph 中发生于节点输出校验之后。宿主成功保存后才产生 `checkpoint.saved`，其中带检查点摘要。Graph 调用带运行和叶子节点标识，Graph 检查点事件列出已确认和待核对的叶子 ID。Graph 检查点恢复时沿用运行标识，配置化 Loop 的每轮 Graph 则有独立标识。恢复已确认输出时直接复用结果。`checkpoint.restored` 标明读到的快照。离线核对时可将同一观察函数作为第三个参数传给 `reconcileGraphCheckpoint`，通过 `checkpoint.reconciled` 记录核对决定，再由宿主持久保存。
+- **观察 Worker 状态。** IPC 断线或宿主将注册实例标为不可用时产生 `worker.unavailable`。HTTP 超时仅反映本次尝试的情况。事件由派发方记录，调度器不等待异步导出，观察函数异常也不会改变执行结果。
+- **跨实例重试。** 次数上限包含首次尝试。未固定绑定的调用可以转到另一个已注册、能力匹配且有空闲容量的实例，每个 Worker ID 最多尝试一次。默认策略只重试状态为 `not_sent` 的通道关闭、Worker 退出、通信错误和超时。参数错误、协议错误、远端业务异常和固定绑定直接返回错误。取消后停止派发。`recovery.decided` 记录决定，重试时也记录目标 Worker。
+- **核对未知结果。** 可提供 `shouldRetry({ operationId, node, input, error, signal })`，异步查询回执，确认可安全重放时返回 true。涉及外部写入时，各副本需要共享幂等键或等效协调机制。尝试预算作用于本次在线调用；进程重启后，检查点中的未确认意图仍需显式核对。
 
 服务停止时先停止接收新 HTTP 请求，等待应用顶层任务，再关闭 Runtime 和 Server；MCP、Provider 外部连接由拥有者关闭。`registerRemote` 只是本地目录登记，不会启动服务器或把 Worker 代码复制到另一台机器。
 

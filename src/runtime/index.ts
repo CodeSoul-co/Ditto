@@ -18,6 +18,7 @@ export type { LoopDefinition } from "./loop.js";
 export { NoWorkerAvailableError } from "./router.js";
 export { InMemoryArtifactStore, PayloadCodec } from "./artifact.js";
 export type { ArtifactStore, Payload } from "./artifact.js";
+export type { ExecutionAttempt, ExecutionEvent, ExecutionObserver, ExecutionOperation, RecoveryPolicy } from "./execution-events.js";
 export { LocalEventFabric } from "./communication/events.js";
 export type { EventFabric, EventFailure, EventHandler, RuntimeEvent } from "./communication/events.js";
 export type {

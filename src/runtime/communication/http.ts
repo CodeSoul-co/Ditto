@@ -123,7 +123,9 @@ function payload(value: unknown): boolean {
 function envelope(value: unknown): value is InvocationEnvelope {
   return record(value) && typeof value.id === "string" && value.id !== "" && typeof value.node === "string"
     && /^[^.]+\..+$/.test(value.node) && address(value.target) && payload(value.payload)
+    && (value.operationId === undefined || typeof value.operationId === "string")
     && (value.source === undefined || address(value.source))
     && (value.execution === undefined || record(value.execution)
+      && (value.execution.executionId === undefined || typeof value.execution.executionId === "string")
       && ["graphId", "runId", "nodeId"].every((key) => typeof (value.execution as Record<string, unknown>)[key] === "string"));
 }

@@ -74,7 +74,24 @@ The receiving handler validates the Envelope shape. The Runtime then checks targ
 
 The token is a service-level credential that authorizes all public capabilities in that service's Runtime; it is not a tenant or per-Node ACL. External requests should pass through the application's authentication/tenant gateway. Use `expose` to limit public entry points. The execution host owns Provider keys, connections and Sandbox settings; envelopes cannot override those settings. INFER business input still explicitly selects a model resolved through configured Providers. Business inputs may still contain sensitive content, so applications must manage logging and storage accordingly.
 
-Calls are not retried automatically. A timeout or disconnect leaves the result unknown: the remote side may still be executing or may already have changed external state. An HTTP client timeout ends only the wait; it does not provide remote cancellation, deduplication, transactions, or exactly-once execution. Retrying operations that may affect external state requires application-level idempotency keys and persistent result records. Remote overload currently returns a generic failure; the caller has no automatic failover or health probing.
+By default each call has one attempt. A timeout or disconnect can leave the remote result unknown. HTTP cancellation ends the caller’s wait and a remote service can still finish the operation.
+
+### Execution events and optional failover
+
+Pass `onExecutionEvent` and/or `recoveryPolicy` to `createDitto` or `createAgent`. Both options are supplied by the host. A minimal two-attempt configuration is:
+
+```ts
+const runtime = createDitto({
+  onExecutionEvent(event) { console.log(event); },
+  recoveryPolicy: { maxAttempts: 2 },
+});
+```
+
+- **Tracking.** One logical operation emits `operation.dispatched`. Each physical dispatch has its own `attempt.started`, followed by `attempt.succeeded` or `attempt.failed`. Attempts share an `operationId` and have distinct `attemptId` values matching the wire invocation IDs. Worker handlers receive both through `ctx.invocation`. A successful inference attempt includes usage when its provider reports it. A lost response has unknown usage.
+- **Commit and persistence.** `operation.committed` names the accepted attempt. In a Graph it follows output validation. `checkpoint.saved` follows the host’s successful save and includes the checkpoint digest. Graph events identify the run and leaf; Graph checkpoint events list confirmed and uncertain leaf IDs. A checkpointed Graph keeps its run identity on resume; each configured Loop iteration has a distinct Graph run. Restoring confirmed outputs emits no new attempt. `checkpoint.restored` reports the loaded snapshot. To observe offline reconciliation, pass the same observer as the third argument to `reconcileGraphCheckpoint`. Its `checkpoint.reconciled` event reports the decision; the host still owns the save.
+- **Worker state.** `worker.unavailable` reports an observed IPC disconnect or a registration marked unavailable. HTTP timeouts describe an attempt and do not establish that the whole Worker is down. Observers run at the dispatcher, without waiting for async exporters. An observer failure does not affect execution.
+- **Failover.** The budget includes the initial dispatch. An unpinned call can move to another registered compatible Worker with capacity; each Worker ID is tried once. The default policy permits only `not_sent` channel, worker-exit, communication and timeout failures. Invalid requests, protocol errors, remote application errors and pinned calls propagate. Cancellation stops further attempts. `recovery.decided` records the choice and, on retry, the next Worker.
+- **Unknown outcomes.** Supply `shouldRetry({ operationId, node, input, error, signal })` for application decisions. It may await a receipt and must return true only when replay is safe. Side-effecting operations need a shared idempotency key or equivalent coordination across replicas. The budget applies to this live invocation. Pending checkpoint intents still require explicit reconciliation after a restart.
 
 During shutdown, first stop accepting new HTTP requests and await application-level work, then close the Runtime and Server. Owners close external MCP and Provider connections. `registerRemote` only adds a local directory entry; it does not start a server or copy Worker code to another machine.
 
